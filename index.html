@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ОЦЕНОЧКА ФИЛЬМОВ</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+    <div id="auth-screen">
+        <div class="auth-card">
+            <h2>ВХОД В СИСТЕМУ</h2>
+            <input type="password" id="secret-code" placeholder="Секретный код" style="text-align: center;">
+            <button onclick="login()" class="save-btn">ПОДТВЕРДИТЬ</button>
+        </div>
+    </div>
+
+    <div class="header-controls">
+        <div id="user-display" class="current-user-badge">Загрузка...</div>
+        <button class="logout-btn" onclick="logout()">ВЫЙТИ</button>
+    </div>
+
+    <h1>🎬 ОЦЕНОЧКА ФИЛЬМОВ</h1>
+
+    <div class="nav-tabs">
+        <button id="tab-grid" class="nav-btn active" onclick="switchTab('grid')">Фильмы</button>
+        <button id="tab-roulette" class="nav-btn" onclick="switchTab('roulette')">Рулетка</button>
+        <button id="tab-stats" class="nav-btn" onclick="switchTab('stats')">Статистика</button>
+    </div>
+
+    <div id="main-view">
+        <div class="admin-panel" style="text-align: center; margin-bottom: 20px;">
+            <button onclick="toggleForm()" class="add-btn">+ Добавить фильм</button>
+            <div id="form-container" style="display: none; max-width: 800px; margin: 20px auto; background: #161616; padding: 20px; border-radius: 12px; border: 1px solid #2a2a2a;">
+                <form id="add-movie-form" style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                    <div style="grid-column: span 2; display: flex; gap: 10px;">
+                        <input type="text" id="new-title" placeholder="Название фильма" required style="margin-bottom: 0;">
+                        <button type="button" onclick="searchMovieData()" style="width: 100px; background: #c0c0c0; color: #000; border: none; border-radius: 10px; cursor: pointer; font-weight: bold; font-size: 0.7rem;">ПОИСК</button>
+                    </div>
+                    <input type="text" id="new-poster" placeholder="URL постера" style="grid-column: span 2;">
+                    <input type="number" id="new-year" placeholder="Год">
+                    <input type="number" id="new-duration" placeholder="Длительность (мин)">
+                    <input type="text" id="new-genre" placeholder="Жанр">
+                    <input type="text" id="new-producer" placeholder="Режиссер">
+                    <input type="text" id="new-actors" placeholder="Актеры" style="grid-column: span 2;">
+                    <input type="number" id="new-kp-rating" placeholder="Рейтинг КП " step="0.1" min="0" max="10" style="grid-column: span 2;">
+                    
+                    <select id="new-status" style="grid-column: span 2;"><option value="Не просмотрено">Не просмотрено</option><option value="Просмотрено" selected>Просмотрено</option></select>
+                    <button type="submit" class="save-btn" style="grid-column: span 2;">Добавить фильм</button>
+                </form>
+            </div>
+        </div>
+
+        <div style="max-width: 800px; margin: 0 auto 25px;">
+            <input type="text" id="search-input" placeholder="Поиск фильма..." oninput="applyFilters()">
+            <div class="filters-container">
+                <select id="filter-genre" onchange="applyFilters()"></select>
+                <select id="filter-producer" onchange="applyFilters()"></select>
+                <select id="filter-assessment" onchange="applyFilters()">
+                    <option value="all">Все оценки</option>
+                    <option value="both">Оценили оба</option>
+                    <option value="only_me">Оценил умный</option>
+                    <option value="only_any">Оценил не умный</option>
+                    <option value="none">Никто не оценил</option>
+                    <option value="not_watched">Не просмотрено</option>
+                </select>
+                <select id="sort-select" onchange="applyFilters()">
+                    <option value="newest">Сначала новые</option>
+                    <option value="rating-desc">Топ рейтинга</option>
+                    <option value="title-asc">А-Я</option>
+                </select>
+            </div>
+        </div>
+
+        
+        <div id="movie-grid" class="grid"></div>
+    </div>
+
+    <div id="roulette-screen" style="display: none; max-width: 900px; margin: 0 auto; text-align: center; padding: 20px;">
+        <h2 style="letter-spacing: 3px; font-size: 0.8rem; color: #555; margin-bottom: 25px; text-transform: uppercase;">ВЫБОР ФИЛЬМА</h2>
+        
+        <div id="roulette-controls" style="margin-bottom:30px; display:flex; flex-wrap:nowrap; gap:10px; justify-content:center; align-items: stretch;">
+            <select id="time-filter" style="width: auto; margin-bottom: 0;" onchange="if(window.innerWidth <= 600) prepareDrum()">
+                <option value="999">Любое время</option>
+                <option value="90">До 90 мин</option>
+                <option value="120">До 120 мин</option>
+                <option value="150">До 150 мин</option>
+            </select>
+            
+            <select id="spin-mode" style="width: auto; margin-bottom: 0;">
+                <option value="elimination">На выбывание</option>
+                <option value="classic" selected>Обычный</option>
+            </select>
+
+            <div style="display: flex; align-items: center; background: #1a1a1a; border: 1px solid #333; border-radius: 8px; padding: 0 12px; height: 38px; box-sizing: border-box;">
+                <span style="font-size: 0.65rem; color: #555; text-transform: uppercase; white-space: nowrap; margin-right: 5px;">СЕК:</span>
+                <input type="number" id="spin-duration-input" value="5" min="0.1" max="100" step="0.1" 
+                    style="width: 40px; background: transparent !important; border: none !important; margin-bottom: 0; padding: 0 !important; text-align: center; font-weight: bold; color: #fff !important; font-size: 0.85rem;">
+            </div>
+
+            <button onclick="initRoulette()" id="start-battle-btn" style="background:#fff; color:#000; border:none; padding:0 20px; border-radius:8px; font-weight:bold; cursor:pointer; font-size: 0.7rem; text-transform: uppercase; height: 38px;">
+                ГОТОВО
+            </button>
+        </div>
+
+        <div id="roulette-container" style="position:relative; width:100%; max-width:700px; margin: 0 auto; height:700px;">
+            <canvas id="wheelCanvas" style="
+                width:100%; 
+                height:100%; 
+                filter: drop-shadow(0 0 12px rgba(255, 255, 255, 0.1));">
+            </canvas>
+            
+            <div id="pointer" style="
+                position: absolute; 
+                top: -15px; 
+                left: 50%; 
+                transform: translateX(-50%); 
+                width: 40px; 
+                height: 40px; 
+                z-index: 10;
+                background: linear-gradient(135deg, #ffffff 0%, #a0a0a0 100%);
+                clip-path: polygon(0% 0%, 100% 0%, 50% 100%);
+                filter: drop-shadow(0 0 8px rgba(255, 255, 255, 0.6));">
+            </div>
+
+            
+        </div>
+
+        <div id="mobile-roulette-container" style="display: none; max-width: 500px; margin: 0 auto; position: relative;">
+            <div class="drum-wrapper">
+                <div class="drum-line"></div>
+                <div id="drum-list" class="drum-list">
+                    </div>
+                <div class="drum-overlay"></div>
+            </div>
+            <button id="mobile-spin-button" onclick="spinDrum()" class="save-btn" style="margin-top: 20px;">
+                КРУТИТЬ БАРАБАН
+            </button>
+        </div>
+
+        <div id="winner-overlay" style="
+            display: none; 
+            position: fixed; 
+            top: 0; left: 0; width: 100%; height: 100%; 
+            background: rgba(0, 0, 0, 0.75); 
+            backdrop-filter: blur(8px); 
+            -webkit-backdrop-filter: blur(8px);
+            z-index: 9999; 
+            flex-direction: column; 
+            justify-content: center; align-items: center; 
+            opacity: 0; 
+            pointer-events: none;
+            transition: opacity 0.5s ease;">
+            
+            <span style="color: #c0c0c0; font-size: 0.9rem; letter-spacing: 5px; text-transform: uppercase; margin-bottom: 15px; font-weight: 500;">
+                ВЫПАЛ ФИЛЬМ:
+            </span>
+            
+            <h2 id="overlay-movie-title" style="
+                color: #fff; 
+                font-size: 2.6rem; 
+                text-align: center; 
+                padding: 0 30px; 
+                margin: 0; 
+                text-shadow: 0 0 10px rgba(255, 255, 255, 0.8), 0 0 25px rgba(192, 192, 192, 0.5), 0 0 45px rgba(160, 160, 160, 0.3);
+                font-weight: 800;
+                text-transform: uppercase;
+                line-height: 1.2;">
+                НАЗВАНИЕ
+            </h2>
+            
+            <button onclick="closeWinnerOverlay()" style="
+                margin-top: 50px; 
+                background: rgba(192, 192, 192, 0.1); 
+                border: 1px solid rgba(192, 192, 192, 0.4); 
+                color: #fff; 
+                cursor: pointer; 
+                padding: 12px 35px; 
+                border-radius: 30px;
+                font-size: 0.9rem;
+                font-weight: bold;
+                text-transform: uppercase;
+                letter-spacing: 2px;
+                z-index: 101;
+                pointer-events: auto;
+                transition: all 0.3s ease;
+                box-shadow: 0 0 15px rgba(192, 192, 192, 0.1);
+            " onmouseover="this.style.background='rgba(192,192,192,0.3)'; this.style.boxShadow='0 0 20px rgba(192, 192, 192, 0.4)'" 
+            onmouseout="this.style.background='rgba(192,192,192,0.1)'; this.style.boxShadow='0 0 15px rgba(192, 192, 192, 0.1)'">
+                ЗАКРЫТЬ
+            </button>
+        </div>
+
+        <div id="pc-spin-controls" style="margin-top:30px;">
+            <button id="spin-button" disabled onclick="spinRoulette()" style="
+                background: linear-gradient(145deg, #e6e6e6, #a6a6a6, #666); 
+                color: #000; 
+                border: 1px solid #fff; 
+                padding: 15px 50px; 
+                border-radius: 40px; 
+                font-weight: 900; 
+                font-size: 1.4rem; 
+                cursor: not-allowed; 
+                opacity: 0.3; 
+                text-transform: uppercase; 
+                letter-spacing: 2px;
+                box-shadow: 0 4px 15px rgba(0,0,0,0.5);">
+                КРУТИТЬ
+            </button>
+            <p id="winner-display" style="
+                margin-top:25px; 
+                font-size:1.1rem; 
+                font-weight:bold; 
+                color: #e0e0e0; 
+                text-shadow: 0 0 10px rgba(255,255,255,0.2);
+                min-height: 1.5em;
+                text-transform: uppercase;
+                letter-spacing: 1px;">
+            </p>
+        </div>
+    </div>
+
+    <div id="stats-container" style="display: none; max-width: 900px; margin: 0 auto;"></div>
+
+    <div id="movie-modal" class="modal">
+        <div class="modal-content">
+            <span style="position:absolute; right:20px; top:10px; cursor:pointer; font-size:1.5rem; color:#888;" onclick="closeModal()">&times;</span>
+            <div id="modal-body"></div>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
