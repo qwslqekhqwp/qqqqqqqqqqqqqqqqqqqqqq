@@ -69,7 +69,7 @@ function login() {
         localStorage.setItem('userName', currentUserName);
         checkAuth();
     } else {
-        alert("Код неверен.");
+        showToast("Неверный код доступа", "error");
     }
 }
 
@@ -91,14 +91,18 @@ function logout() {
  * Обновляет фильтры и отображение после загрузки
  */
 async function fetchMovies() {
+    // Включаем скелеты до того, как данные загрузились
+    renderSkeletons();
+    
     const { data, error } = await supabaseClient.from('movies').select('*');
     
     if (error) {
+        showToast("Ошибка подключения к базе", "error");
         console.error(error);
     } else {
         allMovies = data;
         updateFilterOptions();
-        applyFilters();
+        applyFilters(); // Эта функция сама удалит скелеты и нарисует фильмы
     }
 }
 
@@ -144,7 +148,7 @@ async function saveRatings() {
     });
     
     const { error } = await supabaseClient.from('movies').update(updateData).eq('id', currentMovieId);
-    if (error) alert(error.message); else location.reload();
+    if (error) showToast("Ошибка сохранения", "error"); else { showToast("Сохранено!", "success"); setTimeout(() => location.reload(), 800); }
 }
 
 // ==========================================
@@ -165,6 +169,62 @@ function formatDate(dateString) {
         month: '2-digit', 
         year: 'numeric' 
     });
+}
+
+/**
+ * Показывает стильное всплывающее уведомление
+ * @param {string} message - Текст уведомления
+ * @param {string} type - Тип (success, error, warning, info)
+ */
+function showToast(message, type = "info") {
+    const container = document.getElementById('toast-container');
+    if (!container) return;
+
+    const toast = document.createElement('div');
+    toast.className = 'toast';
+    
+    // Строгий монохром, меняем только иконку
+    let icon = "❕"; 
+    if (type === "success") icon = "✓";
+    if (type === "error") icon = "✕";
+    if (type === "warning") icon = "⚠";
+
+    toast.innerHTML = `<span style="font-size: 1.1rem; font-weight: 900;">${icon}</span> ${message}`;
+
+    // Закрытие по клику (интерактивность)
+    toast.onclick = () => {
+        toast.classList.add('closing');
+        setTimeout(() => toast.remove(), 300);
+    };
+
+    container.appendChild(toast);
+
+    // Авто-удаление через 3.5 секунды
+    setTimeout(() => {
+        if (toast.parentElement) {
+            toast.classList.add('closing');
+            setTimeout(() => toast.remove(), 300);
+        }
+    }, 3500);
+}
+
+/**
+ * Отрисовывает пульсирующие скелеты на месте фильмов во время загрузки
+ */
+function renderSkeletons() {
+    const grid = document.getElementById('movie-grid');
+    if (!grid) return;
+    grid.innerHTML = '';
+    // Рисуем 8 заглушек
+    for(let i=0; i<8; i++) {
+        grid.innerHTML += `
+            <div class="skeleton-card">
+                <div class="skeleton-img skeleton-anim"></div>
+                <div class="skeleton-text skeleton-anim"></div>
+                <div class="skeleton-badge skeleton-anim"></div>
+            </div>
+        `;
+    }
 }
 
 // ==========================================
@@ -601,8 +661,7 @@ async function searchMovieData() {
     const title = titleInput.value;
     const searchBtn = document.querySelector('button[onclick="searchMovieData()"]');
     
-    if (!title) return alert("Введите название фильма");
-    
+    if (!title) return showToast("Введите название фильма", "warning");
     const originalBtnText = searchBtn.innerText;
     searchBtn.innerText = "ПОИСК...";
     searchBtn.style.opacity = "0.5";
@@ -616,7 +675,7 @@ async function searchMovieData() {
         const searchData = await searchRes.json();
         
         if (searchData.results.length === 0) {
-            return alert("Фильм не найден");
+            return showToast("Фильм не найден в TMDB", "error");
         }
         
         // Получаем полную информацию о первом найденном фильме
@@ -639,9 +698,9 @@ async function searchMovieData() {
         document.getElementById('new-producer').value = director ? director.name : '';
         document.getElementById('new-actors').value = details.credits.cast.slice(0, 3).map(a => a.name).join(', ');
         
-        alert(`Данные подгружены! Рейтинг TMDB: ${tempExternalRating}`);
+        showToast(`Данные загружены! TMDB: ${tempExternalRating}`, "success");
     } catch (err) {
-        alert("Ошибка при поиске данных");
+        showToast("Сбой при поиске в TMDB", "error");
     } finally {
         searchBtn.innerText = originalBtnText;
         searchBtn.style.opacity = "1";
@@ -736,6 +795,7 @@ function switchTab(tab) {
  * Генерирует и отображает статистику по всем просмотренным фильмам
  * Показывает средний рейтинг, жанры, топ лучших/худших фильмов и другие метрики
  */
+
 function generateStatistics() {
     const container = document.getElementById('stats-container');
     const viewed = allMovies.filter(m => m.status === 'Просмотрено');
@@ -745,18 +805,95 @@ function generateStatistics() {
         return;
     }
     
-    // Вычисляем основные метрики
+    // БАЗОВЫЕ МЕТРИКИ
     const avgScore = (viewed.reduce((acc, m) => acc + calculateRating(m).total, 0) / viewed.length).toFixed(1);
     const totalMinutes = viewed.reduce((acc, m) => acc + (parseInt(m.duration) || 0), 0);
     const totalMoviesCount = viewed.length;
     
-    // Находим интересные факты
     const longest = viewed.reduce((p, c) => (parseInt(c.duration || 0) > parseInt(p.duration || 0)) ? c : p);
     const oldest = viewed.reduce((p, c) => (parseInt(c.year || 3000) < parseInt(p.year || 3000)) ? c : p);
-    const controversial = viewed.reduce((p, c) => (Math.abs(calculateRating(c).me - calculateRating(c).any) > Math.abs(calculateRating(p).me - calculateRating(p).any)) ? c : p);
-    const maxDiff = Math.abs(calculateRating(controversial).me - calculateRating(controversial).any).toFixed(1);
 
-    // Анализируем жанры
+    // ==========================================
+    // СОВМЕСТИМОСТЬ ВКУСОВ 
+    // ==========================================
+    const bothRated = viewed.filter(m => {
+        const hasMe = (Number(m.plot_me||0) + Number(m.ending_me||0) + Number(m.actors_me||0) + Number(m.reviewability_me||0) + Number(m.atmosphere_me||0) + Number(m.music_me||0)) > 0;
+        const hasAny = (Number(m.plot_any||0) + Number(m.ending_any||0) + Number(m.actors_any||0) + Number(m.reviewability_any||0) + Number(m.atmosphere_any||0) + Number(m.music_any||0)) > 0;
+        return hasMe && hasAny;
+    });
+
+    let matchHTML = "";
+    
+    if (bothRated.length > 0) {
+        let totalDiff = 0;
+        let sumMe = 0;
+        let sumAny = 0;
+
+        bothRated.forEach(m => {
+            const r = calculateRating(m);
+            sumMe += r.me;
+            sumAny += r.any;
+            totalDiff += Math.abs(r.me - r.any);
+        });
+
+        const count = bothRated.length;
+        const avgDiff = totalDiff / count;
+        
+        let matchPercent = Math.round(100 - (avgDiff * 10));
+        if (matchPercent < 0) matchPercent = 0;
+
+        const avgMe = (sumMe / count).toFixed(2);
+        const avgAny = (sumAny / count).toFixed(2);
+
+        let verdict = "";
+        const diffAvg = Math.abs(avgMe - avgAny).toFixed(2);
+        if (avgMe > avgAny) verdict = `«Не умный» судит фильмы строже в среднем на ${diffAvg} балла.`;
+        else if (avgAny > avgMe) verdict = `«Умный» судит фильмы строже в среднем на ${diffAvg} балла.`;
+        else verdict = "В среднем вы оцениваете фильмы абсолютно одинаково.";
+
+        const mostAgreed = bothRated.reduce((p, c) => Math.abs(calculateRating(c).me - calculateRating(c).any) < Math.abs(calculateRating(p).me - calculateRating(p).any) ? c : p);
+        const mostDisagreed = bothRated.reduce((p, c) => Math.abs(calculateRating(c).me - calculateRating(c).any) > Math.abs(calculateRating(p).me - calculateRating(p).any) ? c : p);
+
+        const agreedDiff = Math.abs(calculateRating(mostAgreed).me - calculateRating(mostAgreed).any).toFixed(2);
+        const disagreedDiff = Math.abs(calculateRating(mostDisagreed).me - calculateRating(mostDisagreed).any).toFixed(2);
+
+        matchHTML = `
+        <div class="match-container">
+            <h2 class="match-percent">${matchPercent}%</h2>
+            <div class="match-label">СОВПАДЕНИЕ ВКУСОВ</div>
+
+            <div class="match-stats">
+                <div class="match-user">
+                    <h4>Умный</h4>
+                    <div class="match-score">${avgMe}</div>
+                </div>
+                <div class="match-user">
+                    <h4>Не умный</h4>
+                    <div class="match-score">${avgAny}</div>
+                </div>
+            </div>
+
+            <div class="match-verdict">${verdict}</div>
+
+            <div class="match-extremes">
+                <div class="match-card">
+                    <div class="match-card-title">🤝 Единогласие</div>
+                    <div class="match-card-movie">${mostAgreed.title}</div>
+                    <div class="match-card-diff">Разница: ${agreedDiff} балла</div>
+                </div>
+                <div class="match-card">
+                    <div class="match-card-title">👾 Разногласие</div>
+                    <div class="match-card-movie">${mostDisagreed.title}</div>
+                    <div class="match-card-diff">Разница: ${disagreedDiff} балла</div>
+                </div>
+            </div>
+        </div>`;
+    }
+
+    // ==========================================
+    // ЖАНРЫ И ТОПЫ (НОВЫЙ БЛОК С МЕДАЛЯМИ)
+    // ==========================================
+    
     const genreData = {};
     viewed.forEach(m => {
         if (m.genre) {
@@ -769,6 +906,7 @@ function generateStatistics() {
         }
     });
 
+    // Оставляем только ТОП-10 жанров
     const sortedGenres = Object.entries(genreData)
         .map(([name, data]) => ({
             name,
@@ -777,6 +915,34 @@ function generateStatistics() {
             score: (data.totalScore / data.count) * (1 + Math.log10(data.count))
         }))
         .sort((a, b) => b.score - a.score);
+
+    // Ищем максимальный балл для 100% полоски
+    const maxScore = sortedGenres.length > 0 ? sortedGenres[0].score : 1;
+
+    // Генерируем HTML полосок
+    const genreBarsHTML = sortedGenres.map((g, index) => {
+        const relativeWidth = (g.score / maxScore) * 100;
+        
+        let medalClass = "";
+        if (index === 0) medalClass = "bar-gold";
+        else if (index === 1) medalClass = "bar-silver";
+        else if (index === 2) medalClass = "bar-bronze";
+
+        return `
+            <div class="genre-item">
+                <div class="genre-name" style="${index < 3 ? 'color: #fff; font-weight: bold;' : ''}">
+                    ${g.name}
+                </div>
+                <div class="genre-track">
+                    <div class="genre-fill ${medalClass}" style="width: ${relativeWidth}%"></div>
+                </div>
+                <div class="genre-info">
+                    <span style="color: #eee;">${g.avg.toFixed(1)} ★</span> 
+                    <span style="color: #444; font-size: 0.6rem;">(${g.count})</span>
+                </div>
+            </div>
+        `;
+    }).join('');
 
     const renderMiniList = (movies, label, isBest = false) => `
         <div style="background:#161616; padding:20px; border-radius:15px; border:1px solid #2a2a2a; height: 100%;">
@@ -794,29 +960,7 @@ function generateStatistics() {
             }).join('')}
         </div>`;
 
-    // Формируем HTML статистики
     container.innerHTML = `
-        <style>
-            .stats-group-title { text-align: center; color: #555; font-size: 0.7rem; letter-spacing: 2px; margin: 30px 0 15px; text-transform: uppercase; }
-            .stats-grid-main { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 20px; }
-            .stats-grid-records { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 30px; }
-            .stats-grid-tops { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
-            .record-card { background:#111; padding:15px; border-radius:12px; border:1px solid #222; text-align:center; min-height:100px; display:flex; flex-direction:column; justify-content:center; }
-            .record-card span { display: block; color: #c0c0c0; font-size: 0.7rem; margin-top: 5px; opacity: 0.7; }
-            
-            .genre-bar-container { background: #161616; padding: 20px; border-radius: 15px; border: 1px solid #2a2a2a; margin-bottom: 30px; }
-            .genre-item { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
-            .genre-name { font-size: 0.75rem; width: 110px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: #aaa; text-transform: uppercase; }
-            .genre-track { flex: 1; height: 8px; background: #222; border-radius: 4px; overflow: hidden; }
-            .genre-fill { height: 100%; background: linear-gradient(90deg, #333, #666); border-radius: 4px; transition: width 0.5s ease; }
-            .genre-info { font-size: 0.7rem; color: #555; min-width: 70px; text-align: right; }
-
-            @media (max-width: 600px) { 
-                .stats-grid-main, .stats-grid-records, .stats-grid-tops { grid-template-columns: 1fr !important; }
-                .genre-name { width: 80px; }
-            }
-        </style>
-
         <h3 class="stats-group-title">ОБЩАЯ СТАТИСТИКА</h3>
         <div class="stats-grid-main">
             <div style="background:#161616; padding:15px; border-radius:20px; text-align:center; border:1px solid #2a2a2a;">
@@ -833,6 +977,8 @@ function generateStatistics() {
             </div>
         </div>
 
+        ${matchHTML}
+
         <h3 class="stats-group-title">ИНТЕРЕСНО, ЧТО...</h3>
         <div class="stats-grid-records">
             <div class="record-card">
@@ -846,26 +992,15 @@ function generateStatistics() {
                 <span>${oldest.year || '—'} год</span>
             </div>
             <div class="record-card">
-                <p style="font-size:0.55rem; color:#555; margin:0 0 8px 0;">МАКС. РАЗНИЦА</p>
-                <div style="font-size:0.85rem;">${controversial.title}</div>
-                <span>Разница: ${maxDiff}</span>
+                <p style="font-size:0.55rem; color:#555; margin:0 0 8px 0;">ЛЮБИМЫЙ ЖАНР</p>
+                <div style="font-size:0.85rem;">${sortedGenres.length ? sortedGenres[0].name : '—'}</div>
+                <span>Ср. балл: ${sortedGenres.length ? sortedGenres[0].avg.toFixed(1) : '—'}</span>
             </div>
         </div>
 
         <h3 class="stats-group-title">РЕЙТИНГ ЖАНРОВ</h3>
         <div class="genre-bar-container">
-            ${sortedGenres.map(g => {
-                const percent = (g.avg * 10);
-                return `
-                    <div class="genre-item">
-                        <div class="genre-name">${g.name}</div>
-                        <div class="genre-track">
-                            <div class="genre-fill" style="width: ${percent}%; opacity: ${0.2 + (g.count/totalMoviesCount) * 0.8}"></div>
-                        </div>
-                        <div class="genre-info">${g.avg.toFixed(1)} ★ (${g.count})</div>
-                    </div>
-                `;
-            }).join('')}
+            ${genreBarsHTML}
         </div>
 
         <div class="stats-grid-tops">
@@ -893,7 +1028,7 @@ function initRoulette() {
     );
 
     if (currentRouletteMovies.length < 2) {
-        alert("Добавьте хотя бы 2 фильма в 'Не просмотрено'!");
+        showToast("Добавьте минимум 2 фильма в 'Не просмотрено'!", "warning");
         return;
     }
 
@@ -925,7 +1060,7 @@ function setupRouletteView() {
         document.getElementById('pc-spin-controls').style.display = 'block';
         document.getElementById('mobile-roulette-container').style.display = 'none';
         
-        if (typeof initCanvasWheel === "function") initCanvasWheel();
+        if (typeof drawWheel === "function") drawWheel();
     }
 }
 
@@ -969,57 +1104,70 @@ function drawWheel() {
  * @param {number} angleOffset - Смещение угла при вращении
  * @param {number} opacity - Прозрачность (для эффектов)
  */
+
 function renderSectors(ctx, centerX, centerY, radius, sliceAngle, angleOffset, opacity) {
+    const lineGradient = ctx.createRadialGradient(centerX, centerY, radius * 0.2, centerX, centerY, radius);
+    lineGradient.addColorStop(0, 'rgba(192, 192, 192, 0)');
+    lineGradient.addColorStop(1, 'rgba(192, 192, 192, 0.25)');
+
     currentRouletteMovies.forEach((movie, i) => {
         const angle = angleOffset + i * sliceAngle;
-        
+        const midAngle = angle + sliceAngle / 2;
         ctx.globalAlpha = opacity;
         
-        // Рисуем градиент каждого сектора
-        const gradient = ctx.createRadialGradient(centerX, centerY, 0, centerX, centerY, radius);
-        if (i % 3 === 0) {
-            gradient.addColorStop(0, '#1a1a1a');
-            gradient.addColorStop(1, '#0a0a0a');
-        } else if (i % 3 === 1) {
-            gradient.addColorStop(0, '#2a2a2a');
-            gradient.addColorStop(1, '#151515');
-        } else {
-            gradient.addColorStop(0, '#111111');
-            gradient.addColorStop(1, '#050505');
-        }
-        
+        ctx.fillStyle = (i % 2 === 0) ? `rgba(255, 255, 255, 0.02)` : `rgba(255, 255, 255, 0.015)`;
         ctx.beginPath();
         ctx.moveTo(centerX, centerY);
         ctx.arc(centerX, centerY, radius, angle, angle + sliceAngle);
-        ctx.fillStyle = gradient;
         ctx.fill();
 
-        // Рисуем линии между секторами
-        ctx.strokeStyle = `rgba(255, 255, 255, ${0.1 * opacity})`;
+        ctx.strokeStyle = lineGradient;
         ctx.lineWidth = 1;
         ctx.stroke();
 
-        // Добавляем название фильма в сектор
         ctx.save();
         ctx.translate(centerX, centerY);
-        ctx.rotate(angle + sliceAngle / 2);
+        ctx.rotate(midAngle);
         ctx.textAlign = "right";
-        ctx.fillStyle = `rgba(204, 204, 204, ${opacity})`;
-        ctx.font = `600 ${Math.max(11, 700 / 55)}px 'Segoe UI', sans-serif`;
-        const shortTitle = movie.title.length > 25 ? movie.title.substring(0, 22) + '...' : movie.title;
+        
+        let normMid = midAngle % (Math.PI * 2);
+        if (normMid < 0) normMid += Math.PI * 2;
+        const distanceToLens = Math.min(normMid, Math.PI * 2 - normMid);
+        
+        // Сектор считается "под линзой", если его центр на 3 часах (0 градусов)
+        const isActive = distanceToLens < (sliceAngle / 2);
+
+        if (isActive) {
+            ctx.scale(1.15, 1.15); // Увеличение лупы
+            ctx.shadowBlur = 12;
+            ctx.shadowColor = 'rgba(255, 255, 255, 0.7)';
+            ctx.fillStyle = `rgba(255, 255, 255, ${opacity})`; // Чисто белый цвет для контраста
+            ctx.font = `800 ${Math.max(12, radius / 22)}px 'Segoe UI', sans-serif`;
+        } else {
+            ctx.shadowBlur = 0; 
+            ctx.fillStyle = `rgba(130, 130, 130, ${opacity})`; // Остальные названия более серые
+            ctx.font = `500 ${Math.max(11, radius / 26)}px 'Segoe UI', sans-serif`;
+        }
+
+        const shortTitle = movie.title.length > 22 ? movie.title.substring(0, 19) + '...' : movie.title;
         ctx.fillText(shortTitle, radius - 35, 5);
         ctx.restore();
     });
 
-    // Рисуем центр колеса
-    ctx.globalAlpha = 1;
+    // ВАЖНО: Делаем сквозное отверстие в центре
+    ctx.globalCompositeOperation = 'destination-out';
     ctx.beginPath();
-    ctx.arc(centerX, centerY, 15, 0, Math.PI * 2);
-    const hubGrad = ctx.createRadialGradient(centerX - 4, centerY - 4, 2, centerX, centerY, 15);
-    hubGrad.addColorStop(0, '#ffffff');
-    hubGrad.addColorStop(1, '#444444');
-    ctx.fillStyle = hubGrad;
+    ctx.arc(centerX, centerY, 40, 0, Math.PI * 2);
     ctx.fill();
+    
+    // Возвращаем режим рисования в обычный, чтобы нарисовать ободок сверху
+    ctx.globalCompositeOperation = 'source-over';
+
+    ctx.beginPath();
+    ctx.arc(centerX, centerY, 40, 0, Math.PI * 2);
+    ctx.strokeStyle = 'rgba(192, 192, 192, 0.4)';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
 }
 
 /**
@@ -1043,14 +1191,22 @@ function spinRoulette() {
         const elapsed = currentTime - startTime;
         const progress = Math.min(elapsed / duration, 1);
         
-        // Используем ease-out анимацию для замедления в конце
+        // Стандартное замедление в конце
         const easing = 1 - Math.pow(1 - progress, 4);
+        
+        // Базовый расчет угла
+        const baseAngle = startAngle + (targetAngle - startAngle) * easing;
+        
+        // ЭФФЕКТ МИКРО-ОСТАНОВКИ: добавляем легкое "сопротивление" на границах секторов
+        const tickOffset = Math.sin((baseAngle % sliceAngle) / sliceAngle * Math.PI * 2) * 0.025;
+        
         const oldAngle = wheelAngle;
-        wheelAngle = startAngle + (targetAngle - startAngle) * easing;
+        // Применяем сопротивление к итоговому углу
+        wheelAngle = baseAngle - tickOffset;
         
         const delta = wheelAngle - oldAngle;
 
-        // Проверяем пересечение границы сектора для звука трещотки
+        // Воспроизведение звука при пересечении сектора
         const currentSector = Math.floor((1.5 * Math.PI - wheelAngle) / sliceAngle);
         const lastSector = Math.floor((1.5 * Math.PI - oldAngle) / sliceAngle);
         
@@ -1063,9 +1219,11 @@ function spinRoulette() {
         const size = canvas.parentElement.offsetWidth;
         ctx.clearRect(0, 0, size, size);
 
+        // Рисуем шлейф от скорости
         if (delta > 0.05) {
             renderSectors(ctx, size/2, size/2, size/2 - 30, sliceAngle, wheelAngle - delta * 0.5, 0.4);
         }
+        // Рисуем основное колесо
         renderSectors(ctx, size/2, size/2, size/2 - 30, sliceAngle, wheelAngle, 1);
 
         if (progress < 1) {
@@ -1085,7 +1243,7 @@ function spinRoulette() {
 function finalizeSpin() {
     isSpinning = false;
     const sliceAngle = (2 * Math.PI) / currentRouletteMovies.length;
-    const normalizedAngle = (1.5 * Math.PI - (wheelAngle % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
+    const normalizedAngle = (2 * Math.PI - (wheelAngle % (2 * Math.PI))) % (2 * Math.PI);
     let winningIndex = Math.floor(normalizedAngle / sliceAngle);
     
     if (winningIndex >= currentRouletteMovies.length) winningIndex = currentRouletteMovies.length - 1;
@@ -1136,14 +1294,7 @@ function finalizeSpin() {
 }
 
 // ==========================================
-// 12.1 МОБИЛЬНАЯ РУЛЕТКА (БАРАБАН)
-// ==========================================
-
-/**
- * Подготавливает барабан: собирает фильмы и размножает их для эффекта долгого кручения
- */
-// ==========================================
-// 12.1 МОБИЛЬНАЯ РУЛЕТКА (СВАЙП)
+// 12.1 МОБИЛЬНАЯ РУЛЕТКА (СВАЙП И ВРАЩЕНИЕ)
 // ==========================================
 
 let currentTranslateY = 0;
@@ -1151,78 +1302,98 @@ let dragStartY = 0;
 let isDraggingDrum = false;
 let lastDragTime = 0;
 let swipeVelocity = 0;
+let lastTickIndex = -1;
 
-/**
- * Подготавливает барабан и вешает слушатели свайпов
- */
 function prepareDrum() {
     const drumList = document.getElementById('drum-list');
     if (!drumList) return;
 
     const maxTime = parseInt(document.getElementById('time-filter').value) || 999;
-    
-    currentRouletteMovies = allMovies.filter(m => 
-        m.status === 'Не просмотрено' && 
-        (parseInt(m.duration) || 0) <= maxTime
-    );
+    currentRouletteMovies = allMovies.filter(m => m.status === 'Не просмотрено' && (parseInt(m.duration) || 0) <= maxTime);
 
     drumList.innerHTML = '';
     currentTranslateY = 0;
-    drumList.style.transition = 'none';
-    drumList.style.transform = `translateY(0px)`;
-
+    
     if (currentRouletteMovies.length < 2) {
-        drumList.innerHTML = '<div class="drum-item" style="color:#ff4d4d; font-size: 0.8rem; white-space: normal; line-height: 1.2; padding-top: 10px;">ДОБАВЬТЕ ХОТЯ БЫ 2 ФИЛЬМА</div>';
+        drumList.innerHTML = '<div class="drum-item" style="color:#ff4d4d; top:50%; transform:translateY(-50%);">НУЖНО 2 ФИЛЬМА</div>';
         return;
     }
 
-    // Размножаем список сильнее (например, 50 раз), чтобы листать можно было долго
-    const repeatCount = 50; 
-    for (let i = 0; i < repeatCount; i++) {
-        currentRouletteMovies.forEach((m) => {
-            const item = document.createElement('div');
-            item.className = 'drum-item';
-            item.innerText = m.title;
-            drumList.appendChild(item);
-        });
-    }
+    currentRouletteMovies.forEach((m, i) => {
+        const item = document.createElement('div');
+        item.className = 'drum-item';
+        item.innerText = m.title;
+        drumList.appendChild(item);
+    });
 
-    // Привязываем события касания
+    updateDrum3D();
+
     const wrapper = document.querySelector('.drum-wrapper');
-    
-    // Очищаем старые обработчики, чтобы не дублировались при перезапуске
     wrapper.replaceWith(wrapper.cloneNode(true));
     const newWrapper = document.querySelector('.drum-wrapper');
 
-    // Мобильные касания
     newWrapper.addEventListener('touchstart', handleDrumTouchStart, {passive: false});
     newWrapper.addEventListener('touchmove', handleDrumTouchMove, {passive: false});
     newWrapper.addEventListener('touchend', handleDrumTouchEnd);
-    
-    // Касания мышкой (для ПК, если тестируешь в браузере)
-    newWrapper.addEventListener('mousedown', handleDrumTouchStart);
-    window.addEventListener('mousemove', handleDrumTouchMove);
-    window.addEventListener('mouseup', handleDrumTouchEnd);
 }
 
-// --- ФИЗИКА СВАЙПА ---
+/**
+ * Главная функция 3D трансформации (Идеальное фиксированное расстояние)
+ */
+function updateDrum3D() {
+    const items = document.querySelectorAll('.drum-item');
+    const radius = 160; 
+    const anglePerItem = 20; 
+    const totalDegrees = items.length * anglePerItem;
+    const anglePerPixel = 0.4; 
+    const currentAngle = currentTranslateY * anglePerPixel;
+
+    items.forEach((item, i) => {
+        const itemAngle = (i * anglePerItem) + currentAngle;
+        let wrappedAngle = ((itemAngle % totalDegrees) + totalDegrees) % totalDegrees;
+        if (wrappedAngle > totalDegrees / 2) {
+            wrappedAngle -= totalDegrees;
+        }
+
+        if (Math.abs(wrappedAngle) > 85) {
+            item.style.opacity = 0;
+            item.style.transform = `rotateX(${wrappedAngle}deg) translateZ(${radius}px)`;
+            item.classList.remove('active');
+            return;
+        }
+
+        item.style.transform = `rotateX(${wrappedAngle}deg) translateZ(${radius}px)`;
+        const opacity = Math.max(0, 1 - (Math.abs(wrappedAngle) / 70));
+        
+        // ЛОГИКА ЩЕЛЧКА
+        if (Math.abs(wrappedAngle) < (anglePerItem / 2)) {
+            item.classList.add('active');
+            item.style.opacity = 1;
+            
+            // Если этот элемент только что стал активным — щелкаем
+            if (lastTickIndex !== i) {
+                playTickSound(); // Звук теперь вызывается только при смене индекса
+                lastTickIndex = i;
+                if (window.navigator.vibrate) window.navigator.vibrate(5); // Легкая вибрация для тактильности
+            }
+        } else {
+            item.classList.remove('active');
+            item.style.opacity = opacity;
+        }
+    });
+}
 
 function handleDrumTouchStart(e) {
     if (isSpinning || currentRouletteMovies.length < 2) return;
     isDraggingDrum = true;
-    
     dragStartY = e.type.includes('touch') ? e.touches[0].clientY : e.clientY;
     lastDragTime = Date.now();
     swipeVelocity = 0;
-
-    const drumList = document.getElementById('drum-list');
-    // Отключаем плавность при касании, чтобы барабан мгновенно лип к пальцу
-    drumList.style.transition = 'none'; 
 }
 
 function handleDrumTouchMove(e) {
-    if (!isDraggingDrum) return;
-    e.preventDefault(); // Блокируем дергание экрана
+    if (!isDraggingDrum || isSpinning) return;
+    e.preventDefault();
 
     const clientY = e.type.includes('touch') ? e.touches[0].clientY : e.clientY;
     const deltaY = clientY - dragStartY;
@@ -1231,75 +1402,92 @@ function handleDrumTouchMove(e) {
     const now = Date.now();
     const deltaTime = now - lastDragTime;
     lastDragTime = now;
+    if (deltaTime > 0) swipeVelocity = deltaY / deltaTime;
 
-    // Считаем скорость свайпа
-    if (deltaTime > 0) {
-        swipeVelocity = deltaY / deltaTime; 
-    }
-
-    currentTranslateY += deltaY;
-    
-    // Защита от вытягивания барабана слишком высоко (за 0)
-    if (currentTranslateY > 50) currentTranslateY = 50; 
-    
-    const drumList = document.getElementById('drum-list');
-    drumList.style.transform = `translateY(${currentTranslateY}px)`;
+    currentTranslateY -= deltaY;
+    updateDrum3D();
 }
 
-function handleDrumTouchEnd(e) {
-    if (!isDraggingDrum) return;
+function handleDrumTouchEnd() {
+    if (!isDraggingDrum || isSpinning) return;
     isDraggingDrum = false;
-
-    if (Math.abs(swipeVelocity) < 0.1) return; 
-
-    isSpinning = true; 
-
-    const drumList = document.getElementById('drum-list');
-    const itemHeight = 50; 
-    const totalItems = drumList.children.length;
-    const maxScroll = -(totalItems - 1) * itemHeight;
-
-    const amplitude = swipeVelocity * 600; 
-    let targetY = currentTranslateY + amplitude;
-
-    targetY = Math.round(targetY / itemHeight) * itemHeight;
-
-    if (targetY > 0) targetY = 0;
-    if (targetY < maxScroll) targetY = maxScroll;
-
-    const duration = Math.min(Math.max(Math.abs(swipeVelocity) * 1.5, 1), 4);
-
-    drumList.style.transition = `transform ${duration}s cubic-bezier(0.15, 0.5, 0.2, 1)`;
-    drumList.style.transform = `translateY(${targetY}px)`;
-
-    currentTranslateY = targetY; 
+    isSpinning = true;
     
-    console.log("Свайп завершен, летим... Время полета:", duration, "сек");
+    // 1. Увеличиваем начальный импульс (было 16, сделаем 24 для большей дальности)
+    let velocity = -swipeVelocity * 1.5; 
+    const pixelsPerItem = 20 / 0.4;
 
-    // Ждем окончания полета
-    setTimeout(() => {
-        isSpinning = false;
-        
-        const winningElementIndex = Math.abs(targetY / itemHeight);
-        const realMovieIndex = winningElementIndex % currentRouletteMovies.length;
+    function step() {
+        if (Math.abs(velocity) > 0.05) {
+            currentTranslateY += velocity * 16;
+            
+            // 2. Уменьшаем трение (было 0.96, ставим 0.985)
+            // Чем ближе к 1.0, тем дольше будет крутиться барабан
+            velocity *= 0.985; 
+            
+            updateDrum3D();
+            requestAnimationFrame(step);
+        } else {
+            // Магнитный довод до ближайшего фильма
+            const targetY = Math.round(currentTranslateY / pixelsPerItem) * pixelsPerItem;
+            const startTime = performance.now();
+            const startY = currentTranslateY;
 
-        const winnerElement = drumList.children[winningElementIndex];
-        if (winnerElement) {
-            winnerElement.classList.add('winner-highlight');
+            function snap(now) {
+                const progress = Math.min((now - startTime) / 500, 1); // Чуть замедлим финальный "довод"
+                currentTranslateY = startY + (targetY - startY) * progress;
+                updateDrum3D();
+                if (progress < 1) requestAnimationFrame(snap);
+                else finishSpin();
+            }
+            requestAnimationFrame(snap);
         }
-
-        // ЖЕСТКО ВЫЗЫВАЕМ ФУНКЦИЮ ПОКАЗА ОКНА
-        finalizeMobileSpin(realMovieIndex);
-
-    }, duration * 1000 + 100);
+    }
+    requestAnimationFrame(step);
 }
 
 /**
- * Завершает мобильный спин, показывает победителя
+ * Автоматическое вращение по кнопке "КРУТИТЬ БАРАБАН"
  */
-/**
- * Завершает мобильный спин, показывает победителя
- */
+function spinDrum() {
+    if (isSpinning || currentRouletteMovies.length < 2) return;
+    isSpinning = true;
+    
+    const extraSpins = 4 + Math.floor(Math.random() * 3); // 4-6 полных кругов
+    const randomIndex = Math.floor(Math.random() * currentRouletteMovies.length);
+    const pixelsPerItem = 20 / 0.4;
+    const totalPixels = currentRouletteMovies.length * pixelsPerItem;
+    
+    const targetY = -(randomIndex * pixelsPerItem) - (extraSpins * totalPixels);
+    const startY = currentTranslateY;
+    const startTime = performance.now();
+    const duration = 3500; 
+
+    function animate(now) {
+        const progress = Math.min((now - startTime) / duration, 1);
+        const easeOut = 1 - Math.pow(1 - progress, 4); 
+        
+        currentTranslateY = startY + (targetY - startY) * easeOut;
+        updateDrum3D();
+        
+        if (progress < 1) {
+            requestAnimationFrame(animate);
+        } else {
+            finishSpin();
+        }
+    }
+    requestAnimationFrame(animate);
+}
+
+function finishSpin() {
+    isSpinning = false;
+    const pixelsPerItem = 20 / 0.4;
+    let index = Math.round(-currentTranslateY / pixelsPerItem) % currentRouletteMovies.length;
+    if (index < 0) index += currentRouletteMovies.length;
+    
+    finalizeMobileSpin(index);
+}
+
 function finalizeMobileSpin(winningIndex) {
     if (!currentRouletteMovies || !currentRouletteMovies[winningIndex]) return;
 
@@ -1314,11 +1502,8 @@ function finalizeMobileSpin(winningIndex) {
     if (!overlay || !overlayTitle) return;
 
     if (mode === 'elimination') {
-        // Режим выбывания
         currentRouletteMovies.splice(winningIndex, 1);
-        
         if (currentRouletteMovies.length === 1) {
-            // Если остался последний фильм - он победитель
             const finalWinner = currentRouletteMovies[0];
             setTimeout(() => {
                 overlayHeader.innerText = "ФИНАЛЬНЫЙ ПОБЕДИТЕЛЬ:";
@@ -1329,62 +1514,71 @@ function finalizeMobileSpin(winningIndex) {
                 if (typeof triggerWinAnimation === "function") triggerWinAnimation();
             }, 1000); 
         } else {
-            // Показываем, кто ВЫБЫЛ
             setTimeout(() => {
                 overlayHeader.innerText = "ВЫБЫЛ ФИЛЬМ:";
                 overlayTitle.innerText = winner.title;
                 overlay.style.display = 'flex';
                 overlay.style.pointerEvents = 'auto'; 
                 setTimeout(() => overlay.style.opacity = '1', 50);
-                
-                // Перерисовываем барабан в фоне (уже без выбывшего фильма)
                 prepareDrum();
             }, 500);
         }
     } else {
-        // Обычный режим
         setTimeout(() => {
             overlayHeader.innerText = "ВЫПАЛ ФИЛЬМ:";
             overlayTitle.innerText = winner.title;
-            
             overlay.style.display = 'flex';
             overlay.style.pointerEvents = 'auto'; 
             setTimeout(() => overlay.style.opacity = '1', 50);
-            
             if (typeof triggerWinAnimation === "function") triggerWinAnimation();
         }, 500);
     }
 }
+
+
 // ==========================================
 // 13. ЗВУКИ И ВИЗУАЛЬНЫЕ ЭФФЕКТЫ
 // ==========================================
 
+// Создаем единый аудио-контекст для всего приложения (Singleton)
+let globalAudioCtx = null;
+function getAudioContext() {
+    if (!globalAudioCtx) {
+        globalAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    }
+    // В некоторых браузерах звук "засыпает", если нет активности
+    if (globalAudioCtx.state === 'suspended') {
+        globalAudioCtx.resume();
+    }
+    return globalAudioCtx;
+}
+
 /**
- * Воспроизводит звук трещотки при вращении колеса
- * Используется Web Audio API
+ * Воспроизводит звук трещотки (клик) при вращении
  */
 function playTickSound() {
-    const actx = new (window.AudioContext || window.webkitAudioContext)();
+    const actx = getAudioContext();
     const osc = actx.createOscillator();
     const gain = actx.createGain();
     
-    osc.frequency.setValueAtTime(700, actx.currentTime);
-    gain.gain.setValueAtTime(0.03, actx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.001, actx.currentTime + 0.05);
+    osc.type = 'sine'; // Более мягкий звук
+    osc.frequency.setValueAtTime(150, actx.currentTime); // Низкая частота (басовитый щелчок)
+    osc.frequency.exponentialRampToValueAtTime(40, actx.currentTime + 0.03); 
+    
+    gain.gain.setValueAtTime(0.1, actx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, actx.currentTime + 0.03);
     
     osc.connect(gain);
     gain.connect(actx.destination);
-    
     osc.start();
-    osc.stop(actx.currentTime + 0.05);
+    osc.stop(actx.currentTime + 0.03);
 }
 
 /**
  * Воспроизводит звук исчезновения при режиме "На выбывание"
- * Нисходящий звук
  */
 function playFadeSound() {
-    const actx = new (window.AudioContext || window.webkitAudioContext)();
+    const actx = getAudioContext();
     const osc = actx.createOscillator();
     const gain = actx.createGain();
     
@@ -1396,45 +1590,27 @@ function playFadeSound() {
     
     osc.connect(gain);
     gain.connect(actx.destination);
-    
     osc.start();
     osc.stop(actx.currentTime + 0.8);
 }
 
 /**
- * Триггерит анимацию и звук фанфар при выборе победителя
+ * Звук победы (перезвон)
  */
 function triggerWinAnimation() {
-    const canvas = document.getElementById('wheelCanvas');
-    canvas.style.transition = "transform 0.3s ease-out, filter 0.3s ease-out";
-    
-    // Эффект "вспышки"
-    canvas.style.transform = "scale(1.05)";
-    canvas.style.filter = "drop-shadow(0 0 30px rgba(255, 255, 255, 0.5))";
-    
-    // Звук фанфар (синтезированный аккорд до-мажор)
-    const actx = new (window.AudioContext || window.webkitAudioContext)();
-    const notes = [523.25, 659.25, 783.99, 1046.50]; // C, E, G, C
-    
-    notes.forEach((freq, i) => {
+    const actx = getAudioContext();
+    [880, 1108, 1318, 1760].forEach((freq, i) => {
         const osc = actx.createOscillator();
         const gain = actx.createGain();
-        
+        osc.type = 'triangle';
         osc.frequency.setValueAtTime(freq, actx.currentTime + i * 0.1);
-        gain.gain.setValueAtTime(0.1, actx.currentTime + i * 0.1);
-        gain.gain.exponentialRampToValueAtTime(0.01, actx.currentTime + i * 0.1 + 0.5);
-        
+        gain.gain.setValueAtTime(0.05, actx.currentTime + i * 0.1);
+        gain.gain.exponentialRampToValueAtTime(0.01, actx.currentTime + i * 0.1 + 1);
         osc.connect(gain);
         gain.connect(actx.destination);
-        
         osc.start(actx.currentTime + i * 0.1);
-        osc.stop(actx.currentTime + i * 0.1 + 0.5);
+        osc.stop(actx.currentTime + i * 0.1 + 1);
     });
-
-    setTimeout(() => {
-        canvas.style.transform = "scale(1)";
-        canvas.style.filter = "drop-shadow(0 0 12px rgba(255, 255, 255, 0.1))";
-    }, 500);
 }
 
 /**
@@ -1445,6 +1621,7 @@ function closeWinnerOverlay() {
     overlay.style.opacity = '0';
     setTimeout(() => {
         overlay.style.display = 'none';
+        overlay.style.pointerEvents = 'none'; // Защита от случайных кликов
     }, 500);
 }
 
