@@ -29,7 +29,8 @@ let isEditMode = false;                                       // Режим ре
 let tempExternalRating = null;                                // Временное хранилище рейтинга TMDB
 let currentRouletteMovies = [];                               // Фильмы для рулетки
 let isSpinning = false;                                       // Флаг вращения рулетки
-let wheelAngle = 0;                                           // Текущий угол поворота колеса
+let wheelAngle = 0;  
+let currentRadarView = 'both'; // Состояние видимости графика: 'me', 'any', 'both'                                         // Текущий угол поворота колеса
 
 // ==========================================
 // 3. АУТЕНТИФИКАЦИЯ
@@ -172,7 +173,7 @@ function formatDate(dateString) {
 }
 
 /**
- * Показывает стильное всплывающее уведомление
+ * Показывает стильное всплывающее уведомление (с поддержкой свайпа)
  * @param {string} message - Текст уведомления
  * @param {string} type - Тип (success, error, warning, info)
  */
@@ -191,15 +192,61 @@ function showToast(message, type = "info") {
 
     toast.innerHTML = `<span style="font-size: 1.1rem; font-weight: 900;">${icon}</span> ${message}`;
 
-    // Закрытие по клику (интерактивность)
+    // Закрытие по обычному клику (оставляем для пользователей с мышкой)
     toast.onclick = () => {
         toast.classList.add('closing');
         setTimeout(() => toast.remove(), 300);
     };
 
+    // === НОВАЯ ЛОГИКА: СВАЙП НА МОБИЛЬНЫХ УСТРОЙСТВАХ ===
+    let startX = 0;
+    let currentX = 0;
+    let isDragging = false;
+
+    // 1. Палец коснулся плашки
+    toast.addEventListener('touchstart', (e) => {
+        startX = e.touches[0].clientX;
+        isDragging = true;
+        toast.style.transition = 'none'; // Отключаем плавность, чтобы плашка прилипла к пальцу
+    }, { passive: true });
+
+    // 2. Палец двигается
+    toast.addEventListener('touchmove', (e) => {
+        if (!isDragging) return;
+        currentX = e.touches[0].clientX;
+        const diffX = currentX - startX;
+
+        // Сдвигаем плашку за пальцем и плавно растворяем (на 150px сдвига будет 0 непрозрачности)
+        toast.style.transform = `translateX(${diffX}px)`;
+        toast.style.opacity = Math.max(0, 1 - Math.abs(diffX) / 150); 
+    }, { passive: true });
+
+    // 3. Палец отпустили
+    toast.addEventListener('touchend', () => {
+        if (!isDragging) return;
+        isDragging = false;
+        const diffX = currentX - startX;
+
+        // Включаем плавную анимацию для завершения свайпа
+        toast.style.transition = 'transform 0.3s ease, opacity 0.3s ease'; 
+
+        if (Math.abs(diffX) > 70) {
+            // Если свайпнули достаточно далеко (больше 70px) -> уводим за экран и удаляем
+            const direction = diffX > 0 ? 1 : -1;
+            toast.style.transform = `translateX(${direction * 300}px)`;
+            toast.style.opacity = '0';
+            setTimeout(() => toast.remove(), 300);
+        } else {
+            // Если свайпнули слабо -> пружиним обратно в центр
+            toast.style.transform = `translateX(0)`;
+            toast.style.opacity = '1';
+        }
+    });
+    // ====================================================
+
     container.appendChild(toast);
 
-    // Авто-удаление через 3.5 секунды
+    // Авто-удаление через 3.5 секунды (если не смахнули раньше)
     setTimeout(() => {
         if (toast.parentElement) {
             toast.classList.add('closing');
@@ -321,9 +368,36 @@ function applyFilters() {
     });
 
     // Сортировка результатов
+    // Сортировка результатов
     filtered.sort((a, b) => {
+        // 1. Сначала проверяем стандартные сортировки
         if (sort === 'rating-desc') return calculateRating(b).total - calculateRating(a).total;
         if (sort === 'title-asc') return a.title.localeCompare(b.title);
+        
+        // 2. Затем — «Самые спорные» (которые мы добавили ранее)
+        if (sort === 'controversial') {
+            const rA = calculateRating(a);
+            const rB = calculateRating(b);
+            const diffA = Math.abs(rA.me - rA.any);
+            const diffB = Math.abs(rB.me - rB.any);
+            return diffB - diffA; // Чем больше разница, тем выше в списке
+        }
+
+        // === ВОТ ЭТО ШАГ Б (ВСТАВЬ ЭТО СЮДА) ===
+        if (sort === 'agreed') {
+            const rA = calculateRating(a);
+            const rB = calculateRating(b);
+            
+            // Считаем абсолютную разницу между вашими оценками для каждого фильма
+            const diffA = Math.abs(rA.me - rA.any);
+            const diffB = Math.abs(rB.me - rB.any);
+            
+            // Сортируем: чем МЕНЬШЕ разница (diffA), тем ВЫШЕ фильм в списке
+            return diffA - diffB; 
+        }
+        // ======================================
+
+        // 3. Если ничего не выбрано, сортируем по дате добавления
         return new Date(b.updated_at || b.created_at) - new Date(a.updated_at || a.created_at);
     });
 
@@ -406,6 +480,19 @@ function renderMovies(movies) {
         
         card.innerHTML = `
             ${viewedBadge}
+            
+            <div class="card-overlay">
+                <div class="overlay-score-item">
+                    <div class="overlay-label">УМНЫЙ</div>
+                    <div class="overlay-val">${r.me.toFixed(1)}</div>
+                </div>
+                <div style="width: 30px; height: 1px; background: rgba(255,255,255,0.1); margin: 5px 0;"></div>
+                <div class="overlay-score-item">
+                    <div class="overlay-label">НЕ УМНЫЙ</div>
+                    <div class="overlay-val">${r.any.toFixed(1)}</div>
+                </div>
+            </div>
+
             <img src="${m.poster || 'https://via.placeholder.com/180x260?text=No+Poster'}">
             <div class="card-info">
                 <div class="card-top-content">
@@ -715,9 +802,21 @@ async function searchMovieData() {
 document.getElementById('add-movie-form').addEventListener('submit', async (e) => {
     e.preventDefault();
     
+    // === НОВАЯ ЛОГИКА: ПРОВЕРКА НА ДУБЛИКАТЫ ===
+    const newTitle = document.getElementById('new-title').value.trim();
+    
+    // Ищем совпадения, игнорируя большие/маленькие буквы
+    const isDuplicate = allMovies.some(m => m.title.toLowerCase() === newTitle.toLowerCase());
+    
+    if (isDuplicate) {
+        showToast("ЭТОТ ФИЛЬМ УЖЕ ЕСТЬ В СПИСКЕ", "error"); // Показываем стильную ошибку с крестиком
+        return; // Останавливаем выполнение кода, фильм не добавится
+    }
+    // ==========================================
+    
     const newMovie = { 
-        title: document.getElementById('new-title').value, 
-        poster: document.getElementById('new-poster').value, 
+        title: newTitle, // Используем уже очищенное от пробелов название
+        poster: document.getElementById('new-poster').value,
         year: document.getElementById('new-year').value, 
         duration: parseInt(document.getElementById('new-duration').value) || 0,
         genre: document.getElementById('new-genre').value, 
@@ -888,6 +987,40 @@ function generateStatistics() {
                 </div>
             </div>
         </div>`;
+
+        // === НОВЫЙ КОД: РАСЧЕТ ДЛЯ ГРАФИКА-ПАУТИНЫ ===
+        let sMe = { plot: 0, ending: 0, reviewability: 0, actors: 0, atmosphere: 0, music: 0 };
+        let sAny = { plot: 0, ending: 0, reviewability: 0, actors: 0, atmosphere: 0, music: 0 };
+        
+        bothRated.forEach(m => {
+            sMe.plot += Number(m.plot_me||0); sMe.ending += Number(m.ending_me||0); sMe.reviewability += Number(m.reviewability_me||0);
+            sMe.actors += Number(m.actors_me||0); sMe.atmosphere += Number(m.atmosphere_me||0); sMe.music += Number(m.music_me||0);
+            
+            sAny.plot += Number(m.plot_any||0); sAny.ending += Number(m.ending_any||0); sAny.reviewability += Number(m.reviewability_any||0);
+            sAny.actors += Number(m.actors_any||0); sAny.atmosphere += Number(m.atmosphere_any||0); sAny.music += Number(m.music_any||0);
+        });
+        
+        // Делим на количество фильмов, чтобы получить среднее
+        for(let k in sMe) sMe[k] /= count;
+        for(let k in sAny) sAny[k] /= count;
+
+        // Добавляем HTML-контейнер для графика
+        matchHTML += `
+        <div style="background:#161616; padding:20px; border-radius:15px; border:1px solid #2a2a2a; margin-bottom:30px; text-align:center;">
+            <h3 style="font-size:0.7rem; color:#555; text-transform:uppercase; letter-spacing:2px; margin:0 0 20px 0;">ДЕТАЛЬНЫЙ РАЗБОР ВКУСОВ</h3>
+            <div style="position:relative; width:100%; max-width:350px; margin:0 auto; aspect-ratio:1/1;">
+                <canvas id="radarCanvas" style="width:100%; height:100%;"></canvas>
+            </div>
+            <div style="display:flex; justify-content:center; gap:10px; margin-top:15px;">
+                <button onclick="setRadarView('me')" id="btn-radar-me" style="font-size:0.6rem; padding:5px 12px; border-radius:5px; border:1px solid #444; background:none; color:#888; cursor:pointer;">ТОЛЬКО Я</button>
+                <button onclick="setRadarView('both')" id="btn-radar-both" style="font-size:0.6rem; padding:5px 12px; border-radius:5px; border:1px solid #c0c0c0; background:#c0c0c0; color:#000; cursor:pointer; font-weight:bold;">ОБА</button>
+                <button onclick="setRadarView('any')" id="btn-radar-any" style="font-size:0.6rem; padding:5px 12px; border-radius:5px; border:1px solid #444; background:none; color:#888; cursor:pointer;">ТОЛЬКО ОН</button>
+            </div>
+        </div>`;
+        
+        // Сохраняем данные временно, чтобы нарисовать график после загрузки HTML
+        window.radarData = { me: sMe, any: sAny };
+        // ===============================================
     }
 
     // ==========================================
@@ -898,7 +1031,7 @@ function generateStatistics() {
     viewed.forEach(m => {
         if (m.genre) {
             m.genre.split(',').forEach(g => {
-                const name = g.trim();
+                const name = g.trim().toUpperCase(); // Приводим к верхнему регистру для точной группировки
                 if (!genreData[name]) genreData[name] = { count: 0, totalScore: 0 };
                 genreData[name].count++;
                 genreData[name].totalScore += calculateRating(m).total;
@@ -1007,12 +1140,135 @@ function generateStatistics() {
             ${renderMiniList([...viewed].sort((a,b)=>calculateRating(b).total-calculateRating(a).total).slice(0,5), "🔥 ТОП ЛУЧШИХ", true)}
             ${renderMiniList([...viewed].sort((a,b)=>calculateRating(a).total-calculateRating(b).total).slice(0,5), "💀 ТОП ХУДШИХ", false)}
         </div>`;
+
+        // Запускаем рисование радара, если для него есть данные
+    if (bothRated.length > 0 && window.radarData) {
+        drawRadarChart(window.radarData.me, window.radarData.any);
+    }
+}
+
+/**
+ * Отрисовывает график-паутину (радар) в статистике
+ */
+function drawRadarChart(statsMe, statsAny) {
+    const canvas = document.getElementById('radarCanvas');
+    if (!canvas) return;
+
+    // Настраиваем качество для Retina-дисплеев
+    const dpr = window.devicePixelRatio || 1;
+    const rect = canvas.parentElement.getBoundingClientRect();
+    canvas.width = rect.width * dpr;
+    canvas.height = rect.height * dpr;
+    
+    const ctx = canvas.getContext('2d');
+    ctx.scale(dpr, dpr);
+
+    const centerX = rect.width / 2;
+    const centerY = rect.height / 2;
+    const radius = Math.min(centerX, centerY) - 35; // Отступ для текста
+
+    const labels = ['СЮЖЕТ', 'КОНЦОВКА', 'ПЕРЕСМ.', 'АКТЕРЫ', 'АТМ.', 'ЗВУК'];
+    const keys = ['plot', 'ending', 'reviewability', 'actors', 'atmosphere', 'music'];
+    const angleStep = (Math.PI * 2) / 6;
+
+    // 1. Рисуем сетку (паутину) из 5 уровней (оценки 2, 4, 6, 8, 10)
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.font = 'bold 9px "Segoe UI", sans-serif';
+
+    for (let level = 1; level <= 5; level++) {
+        const r = radius * (level / 5);
+        ctx.beginPath();
+        for (let i = 0; i < 6; i++) {
+            const angle = i * angleStep - Math.PI / 2; // -90 градусов, чтобы вершина была сверху
+            const x = centerX + Math.cos(angle) * r;
+            const y = centerY + Math.sin(angle) * r;
+            if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+        }
+        ctx.closePath();
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.05)';
+        ctx.stroke();
+    }
+
+    // 2. Рисуем оси от центра и подписи критериев
+    for (let i = 0; i < 6; i++) {
+        const angle = i * angleStep - Math.PI / 2;
+        const x = centerX + Math.cos(angle) * radius;
+        const y = centerY + Math.sin(angle) * radius;
+        
+        ctx.beginPath();
+        ctx.moveTo(centerX, centerY);
+        ctx.lineTo(x, y);
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
+        ctx.stroke();
+
+        // Подписи
+        const labelX = centerX + Math.cos(angle) * (radius + 20);
+        const labelY = centerY + Math.sin(angle) * (radius + 15);
+        ctx.fillStyle = '#888';
+        ctx.fillText(labels[i], labelX, labelY);
+    }
+
+    // 3. Функция отрисовки слоя данных
+    function drawPolygon(data, fillStyle, strokeStyle, isDashed) {
+        ctx.beginPath();
+        keys.forEach((key, i) => {
+            const r = radius * (data[key] / 10); // Масштабируем оценку от 0 до 10
+            const angle = i * angleStep - Math.PI / 2;
+            const x = centerX + Math.cos(angle) * r;
+            const y = centerY + Math.sin(angle) * r;
+            if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+        });
+        ctx.closePath();
+        
+        ctx.fillStyle = fillStyle;
+        ctx.fill();
+        
+        if (isDashed) ctx.setLineDash([4, 4]); // Пунктир для "Не умного"
+        ctx.strokeStyle = strokeStyle;
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        ctx.setLineDash([]); // Сбрасываем пунктир
+    }
+
+    // Рисуем данные в зависимости от выбранного режима
+    if (currentRadarView === 'any' || currentRadarView === 'both') {
+        drawPolygon(statsAny, 'rgba(50, 50, 50, 0.4)', 'rgba(136, 136, 136, 0.8)', true);
+    }
+    
+    if (currentRadarView === 'me' || currentRadarView === 'both') {
+        drawPolygon(statsMe, 'rgba(192, 192, 192, 0.3)', 'rgba(255, 255, 255, 0.9)', false);
+    }
 }
 
 // ==========================================
 // 12. РУЛЕТКА - ВЫБОР ФИЛЬМА
 // ==========================================
+let eliminationAnim = { active: false, index: -1, progress: 0 };
 
+let idleSpinId = null;
+let isIdleSpinning = false;
+
+// Функция медленного вращения в фоне
+function startIdleSpin() {
+    if (isIdleSpinning) return;
+    isIdleSpinning = true;
+    
+    function idleLoop() {
+        if (!isIdleSpinning) return;
+        wheelAngle -= 0.004; // Отрицательное значение крутит ПРОТИВ часовой стрелки
+        if (wheelAngle < 0) wheelAngle += Math.PI * 2;
+        drawWheel();
+        idleSpinId = requestAnimationFrame(idleLoop);
+    }
+    idleLoop();
+}
+
+// Функция остановки фонового вращения
+function stopIdleSpin() {
+    isIdleSpinning = false;
+    if (idleSpinId) cancelAnimationFrame(idleSpinId);
+}
 /**
  * Инициализирует рулетку, подготавливая список фильмов
  * Фильтрует фильмы по времени просмотра и статусу
@@ -1041,7 +1297,7 @@ function initRoulette() {
     
     document.getElementById('winner-display').innerText = `Список готов: ${currentRouletteMovies.length} поз.`;
     wheelAngle = 0; 
-    drawWheel();
+    startIdleSpin(); // Запускаем фоновое вращение вместо обычной статичной отрисовки
 }
 
 /**
@@ -1106,25 +1362,57 @@ function drawWheel() {
  */
 
 function renderSectors(ctx, centerX, centerY, radius, sliceAngle, angleOffset, opacity) {
+    // Градиент для линий
     const lineGradient = ctx.createRadialGradient(centerX, centerY, radius * 0.2, centerX, centerY, radius);
     lineGradient.addColorStop(0, 'rgba(192, 192, 192, 0)');
     lineGradient.addColorStop(1, 'rgba(192, 192, 192, 0.25)');
 
+    // === НОВЫЙ КОД: ПОИСК БЛИЖАЙШЕГО СЕКТОРА К ЦЕНТРУ ЛИНЗЫ ===
+    let closestIndex = -1;
+    let minDistance = Infinity;
+
+    currentRouletteMovies.forEach((_, i) => {
+        const angle = angleOffset + i * sliceAngle;
+        const midAngle = angle + sliceAngle / 2;
+        let normMid = midAngle % (Math.PI * 2);
+        if (normMid < 0) normMid += Math.PI * 2;
+        const dist = Math.min(normMid, Math.PI * 2 - normMid);
+
+        if (dist < minDistance) {
+            minDistance = dist;
+            closestIndex = i; // Запоминаем индекс фильма, который ближе всего к центру
+        }
+    });
+
     currentRouletteMovies.forEach((movie, i) => {
         const angle = angleOffset + i * sliceAngle;
         const midAngle = angle + sliceAngle / 2;
-        ctx.globalAlpha = opacity;
         
+        ctx.save(); // ЗАЩИЩАЕМ координаты колеса от сдвигов анимации
+
+        let currentOpacity = opacity;
+
+        // Логика анимации вылета (если этот фильм выбывает)
+        if (eliminationAnim.active && i === eliminationAnim.index) {
+            ctx.translate(eliminationAnim.progress * 250, 0); // Летим вправо в линзу
+            currentOpacity = opacity * (1 - eliminationAnim.progress); // Растворяемся
+        }
+
+        ctx.globalAlpha = currentOpacity;
+        
+        // Рисуем сам сектор
         ctx.fillStyle = (i % 2 === 0) ? `rgba(255, 255, 255, 0.02)` : `rgba(255, 255, 255, 0.015)`;
         ctx.beginPath();
         ctx.moveTo(centerX, centerY);
         ctx.arc(centerX, centerY, radius, angle, angle + sliceAngle);
         ctx.fill();
 
+        // Рисуем линии секторов
         ctx.strokeStyle = lineGradient;
         ctx.lineWidth = 1;
         ctx.stroke();
 
+        // --- ЛОГИКА ЭФФЕКТА ЛУПЫ ---
         ctx.save();
         ctx.translate(centerX, centerY);
         ctx.rotate(midAngle);
@@ -1134,35 +1422,34 @@ function renderSectors(ctx, centerX, centerY, radius, sliceAngle, angleOffset, o
         if (normMid < 0) normMid += Math.PI * 2;
         const distanceToLens = Math.min(normMid, Math.PI * 2 - normMid);
         
-        // Сектор считается "под линзой", если его центр на 3 часах (0 градусов)
-        const isActive = distanceToLens < (sliceAngle / 2);
+        const isActive = (i === closestIndex) && (distanceToLens < 0.2);
 
         if (isActive) {
-            ctx.scale(1.15, 1.15); // Увеличение лупы
-            ctx.shadowBlur = 12;
-            ctx.shadowColor = 'rgba(255, 255, 255, 0.7)';
-            ctx.fillStyle = `rgba(255, 255, 255, ${opacity})`; // Чисто белый цвет для контраста
-            ctx.font = `800 ${Math.max(12, radius / 22)}px 'Segoe UI', sans-serif`;
+            // ИСПРАВЛЕНИЕ СКАЧКА: Увеличиваем размер шрифта, а не масштаб Canvas!
+            ctx.shadowBlur = 15;
+            ctx.shadowColor = 'rgba(255, 255, 255, 0.8)';
+            ctx.fillStyle = `rgba(255, 255, 255, ${currentOpacity})`;
+            ctx.font = `800 ${Math.max(14, radius / 18)}px 'Segoe UI', sans-serif`; 
         } else {
             ctx.shadowBlur = 0; 
-            ctx.fillStyle = `rgba(130, 130, 130, ${opacity})`; // Остальные названия более серые
+            ctx.fillStyle = `rgba(140, 140, 140, ${currentOpacity})`;
             ctx.font = `500 ${Math.max(11, radius / 26)}px 'Segoe UI', sans-serif`;
         }
 
         const shortTitle = movie.title.length > 22 ? movie.title.substring(0, 19) + '...' : movie.title;
         ctx.fillText(shortTitle, radius - 35, 5);
         ctx.restore();
+
+        ctx.restore(); // Возвращаем координаты на место для следующего сектора
     });
 
-    // ВАЖНО: Делаем сквозное отверстие в центре
-    ctx.globalCompositeOperation = 'destination-out';
+    // --- РИСУЕМ ЧЕТКУЮ ДЫРКУ В ЦЕНТРЕ ---
     ctx.beginPath();
     ctx.arc(centerX, centerY, 40, 0, Math.PI * 2);
+    ctx.fillStyle = '#0a0a0a'; // Закрашиваем центр точно цветом фона сайта
     ctx.fill();
-    
-    // Возвращаем режим рисования в обычный, чтобы нарисовать ободок сверху
-    ctx.globalCompositeOperation = 'source-over';
 
+    // Рисуем серебряный ободок вокруг дырки
     ctx.beginPath();
     ctx.arc(centerX, centerY, 40, 0, Math.PI * 2);
     ctx.strokeStyle = 'rgba(192, 192, 192, 0.4)';
@@ -1177,14 +1464,28 @@ function renderSectors(ctx, centerX, centerY, radius, sliceAngle, angleOffset, o
 function spinRoulette() {
     if (isSpinning || currentRouletteMovies.length < 2) return;
 
+    stopIdleSpin(); // Останавливаем фон перед основным броском
+
     isSpinning = true;
     const duration = (parseFloat(document.getElementById('spin-duration-input').value) || 5) * 1000;
     const startAngle = wheelAngle;
-    const extraSpins = 8 + Math.random() * 5; 
-    const targetAngle = startAngle + (extraSpins * 2 * Math.PI) + Math.random() * (2 * Math.PI);
-    
-    let startTime = null;
-    const sliceAngle = (2 * Math.PI) / currentRouletteMovies.length;
+    // === НОВАЯ ЛОГИКА ИДЕАЛЬНОЙ ЦЕНТРОВКИ ===
+        const sliceAngle = (2 * Math.PI) / currentRouletteMovies.length;
+        
+        // 1. Случайным образом выбираем индекс победителя заранее
+        const winningIndex = Math.floor(Math.random() * currentRouletteMovies.length);
+        
+        // 2. Рассчитываем идеальный угол, при котором центр сектора победителя будет ровно под линзой (на 3 часа)
+        let idealRemainder = (2 * Math.PI - (winningIndex * sliceAngle + sliceAngle / 2)) % (2 * Math.PI);
+        if (idealRemainder < 0) idealRemainder += 2 * Math.PI; // Защита от отрицательных значений
+        
+        // 3. Формируем финальный угол: текущий оборот + 8-12 дополнительных кругов + идеальный угол
+        const extraSpins = 8 + Math.floor(Math.random() * 5);
+        const currentBase = Math.floor(startAngle / (2 * Math.PI)) * 2 * Math.PI;
+        const targetAngle = currentBase + (extraSpins * 2 * Math.PI) + idealRemainder;
+        // =========================================
+        
+        let startTime = null;
 
     function animate(currentTime) {
         if (!startTime) startTime = currentTime;
@@ -1265,26 +1566,50 @@ function finalizeSpin() {
     };
 
     if (mode === 'elimination') {
-        // Режим "На выбывание" — удаляем выбранный фильм
-        currentRouletteMovies.splice(winningIndex, 1);
-        localStorage.setItem('roulette_session', JSON.stringify(currentRouletteMovies));
-        
+        // Запускаем звук испарения
         playFadeSound();
-        drawWheel();
+        
+        let startAnimTime = null;
+        const animDuration = 700; // 0.7 секунд на вылет и испарение
 
-        if (currentRouletteMovies.length > 1) {
-            display.innerText = `ВЫБЫЛ: ${winner.title}`;
-            display.style.color = "#ff4d4d";
-        } else if (currentRouletteMovies.length === 1) {
-            // Если остался один фильм — он победитель
-            const finalWinner = currentRouletteMovies[0];
-            display.innerText = `ПОБЕДИТЕЛЬ: ${finalWinner.title}`;
-            display.style.color = "#fff";
-            
-            setTimeout(() => {
-                showWinnerOverlay("ВЫИГРАЛ ФИЛЬМ:", finalWinner.title);
-            }, 400); 
+        function animateOut(currentTime) {
+            if (!startAnimTime) startAnimTime = currentTime;
+            const progress = Math.min((currentTime - startAnimTime) / animDuration, 1);
+
+            // Активируем переменные для renderSectors
+            eliminationAnim.active = true;
+            eliminationAnim.index = winningIndex;
+            // Делаем плавное ускорение (ease-in) для красивого вылета
+            eliminationAnim.progress = progress * progress; 
+
+            startIdleSpin(); // Снова запускаем фоновое вращение, так как ждем следующего броска
+
+            if (progress < 1) {
+                requestAnimationFrame(animateOut);
+            } else {
+                // АНИМАЦИЯ ОКОНЧЕНА - Делаем резкое смыкание (Вариант А)
+                eliminationAnim.active = false;
+                currentRouletteMovies.splice(winningIndex, 1);
+                localStorage.setItem('roulette_session', JSON.stringify(currentRouletteMovies));
+                
+                drawWheel(); // Моментально перерисовываем колесо без этого фильма
+
+                if (currentRouletteMovies.length > 1) {
+                    display.innerText = `ВЫБЫЛ: ${winner.title}`;
+                    display.style.color = "#c0c0c0"; // Меняем на серебро
+                    display.style.textShadow = "0 0 10px rgba(192, 192, 192, 0.5)"; // Добавляем сияние
+                } else if (currentRouletteMovies.length === 1) {
+                    const finalWinner = currentRouletteMovies[0];
+                    display.innerText = `ПОБЕДИТЕЛЬ: ${finalWinner.title}`;
+                    display.style.color = "#fff";
+                    setTimeout(() => {
+                        showWinnerOverlay("ВЫИГРАЛ ФИЛЬМ:", finalWinner.title);
+                    }, 400); 
+                }
+            }
         }
+        requestAnimationFrame(animateOut);
+        
     } else {
         // Обычный режим — сразу показываем результат
         display.innerText = `ВЫБРАНО: ${winner.title}`;
@@ -1575,23 +1900,43 @@ function playTickSound() {
 }
 
 /**
- * Воспроизводит звук исчезновения при режиме "На выбывание"
+ * Воспроизводит звук "улетающего ветра" (очень тихий и мягкий)
  */
 function playFadeSound() {
     const actx = getAudioContext();
-    const osc = actx.createOscillator();
+    const duration = 1.0; 
+    const bufferSize = actx.sampleRate * duration;
+    const buffer = actx.createBuffer(1, bufferSize, actx.sampleRate);
+    const data = buffer.getChannelData(0);
+    
+    // Генерируем базовый шум
+    for (let i = 0; i < bufferSize; i++) {
+        data[i] = Math.random() * 2 - 1; 
+    }
+
+    const noise = actx.createBufferSource();
+    noise.buffer = buffer;
+
+    const filter = actx.createBiquadFilter();
+    filter.type = 'lowpass';
+    
+    // Имитация порыва ветра
+    filter.frequency.setValueAtTime(100, actx.currentTime);
+    filter.frequency.linearRampToValueAtTime(800, actx.currentTime + 0.3); 
+    filter.frequency.exponentialRampToValueAtTime(100, actx.currentTime + duration); 
+
     const gain = actx.createGain();
     
-    osc.frequency.setValueAtTime(300, actx.currentTime);
-    osc.frequency.exponentialRampToValueAtTime(10, actx.currentTime + 0.8);
-    
-    gain.gain.setValueAtTime(0.1, actx.currentTime);
-    gain.gain.linearRampToValueAtTime(0, actx.currentTime + 0.8);
-    
-    osc.connect(gain);
+    // ДЕЛАЕМ ЗВУК НАМНОГО ТИШЕ: Пиковая громкость теперь всего 0.03 (вместо 0.15)
+    gain.gain.setValueAtTime(0.001, actx.currentTime); 
+    gain.gain.linearRampToValueAtTime(0.03, actx.currentTime + 0.3); // Пик громкости стал еле заметным
+    gain.gain.exponentialRampToValueAtTime(0.001, actx.currentTime + duration); 
+
+    noise.connect(filter);
+    filter.connect(gain);
     gain.connect(actx.destination);
-    osc.start();
-    osc.stop(actx.currentTime + 0.8);
+    
+    noise.start();
 }
 
 /**
@@ -1636,3 +1981,35 @@ window.addEventListener('resize', drawWheel);
 
 // Инициализация при загрузке страницы
 checkAuth();
+
+/**
+ * Переключает режим видимости графиков
+ */
+function setRadarView(mode) {
+    currentRadarView = mode;
+    
+    // Сбрасываем стили всех кнопок
+    ['me', 'any', 'both'].forEach(m => {
+        const btn = document.getElementById(`btn-radar-${m}`);
+        if (btn) {
+            btn.style.background = 'none';
+            btn.style.color = '#888';
+            btn.style.borderColor = '#444';
+            btn.style.fontWeight = 'normal';
+        }
+    });
+
+    // Активируем выбранную кнопку
+    const activeBtn = document.getElementById(`btn-radar-${mode}`);
+    if (activeBtn) {
+        activeBtn.style.background = mode === 'both' ? '#c0c0c0' : 'rgba(255,255,255,0.1)';
+        activeBtn.style.color = mode === 'both' ? '#000' : '#fff';
+        activeBtn.style.borderColor = mode === 'both' ? '#c0c0c0' : '#fff';
+        activeBtn.style.fontWeight = 'bold';
+    }
+
+    // Перерисовываем график с новыми данными
+    if (window.radarData) {
+        drawRadarChart(window.radarData.me, window.radarData.any);
+    }
+}

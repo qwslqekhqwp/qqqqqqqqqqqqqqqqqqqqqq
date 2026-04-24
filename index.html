@@ -70,6 +70,8 @@
                 <select id="sort-select" onchange="applyFilters()">
                     <option value="newest">Сначала новые</option>
                     <option value="rating-desc">Топ рейтинга</option>
+                    <option value="controversial">Самые спорные</option>
+                    <option value="agreed">Наибольшее согласие</option>
                     <option value="title-asc">А-Я</option>
                 </select>
             </div>
@@ -101,7 +103,7 @@
                     style="width: 40px; background: transparent !important; border: none !important; margin-bottom: 0; padding: 0 !important; text-align: center; font-weight: bold; color: #fff !important; font-size: 0.85rem;">
             </div>
 
-            <button onclick="initRoulette()" id="start-battle-btn" style="background:#fff; color:#000; border:none; padding:0 20px; border-radius:8px; font-weight:bold; cursor:pointer; font-size: 0.7rem; text-transform: uppercase; height: 38px;">
+            <button onclick="initRoulette()" id="start-battle-btn" style="background:#1a1a1a; color:#c0c0c0; border:1px solid #c0c0c0; padding:0 20px; border-radius:12px; font-weight:bold; cursor:pointer; font-size: 0.7rem; text-transform: uppercase; height: 38px; box-shadow: 0 4px 15px rgba(0,0,0,0.3);">
                 ГОТОВО
             </button>
         </div>
@@ -190,7 +192,7 @@
                 color: #000; 
                 border: 1px solid #fff; 
                 padding: 15px 50px; 
-                border-radius: 40px; 
+                border-radius: 12px;
                 font-weight: 900; 
                 font-size: 1.4rem; 
                 cursor: not-allowed; 

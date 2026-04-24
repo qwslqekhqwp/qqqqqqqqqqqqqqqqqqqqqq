@@ -1089,30 +1089,82 @@ input[type="range"]::-webkit-slider-thumb {
     100% { background-position: 200% 0; }
 }
 
-/* --- НОВЫЙ УКАЗАТЕЛЬ ДЛЯ ПК (ЛИНЗА СПРАВА) --- */
 /* --- НОВЫЙ УКАЗАТЕЛЬ ДЛЯ ПК (ДЛИННАЯ ЛИНЗА) --- */
 #pointer {
     position: absolute;
     top: 50%;
-    right: 0;
+    right: 0; /* Прижимаем к правому краю контейнера */
     transform: translateY(-50%);
-    /* Ширина до центрального кольца */
+    
+    /* Ширина ровно от правого края до центрального колечка (радиус 40px) */
     width: calc(50% - 40px); 
-    height: 100px;
-    z-index: 100;
+    height: 80px; /* Высота на широком крае */
+    z-index: 1;
     
-    /* Делаем стекло прозрачнее и чище */
-    background: rgba(255, 255, 255, 0.08); 
-    backdrop-filter: blur(4px); /* Уменьшили размытие в 2 раза для видимости текста */
-    -webkit-backdrop-filter: blur(4px);
+    /* Эффект стекла */
+    background: rgba(255, 255, 255, 0.05);
+    backdrop-filter: blur(0.5px);
+    -webkit-backdrop-filter: blur(8px);
     
-    /* Границы: левую убираем, чтобы она "вливалась" в кольцо */
-    border: 1px solid rgba(192, 192, 192, 0.3);
+    /* Рамки (слева рамку убираем, так как там она примыкает к кольцу) */
+    border-top: 1px solid rgba(192, 192, 192, 0.2);
+    border-bottom: 1px solid rgba(192, 192, 192, 0.2);
+    border-right: 1px solid rgba(192, 192, 192, 0.2);
     border-left: none;
     
-    /* Скругляем только ПРАВЫЕ углы (внешние) */
+    /* Форма трапеции: сужается к центру колеса (к левому краю) */
+    clip-path: polygon(0% 40%, 100% 0%, 100% 100%, 0% 60%);
+
     border-radius: 0 20px 20px 0;
     
-    box-shadow: 0 5px 25px rgba(0, 0, 0, 0.4);
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
     pointer-events: none;
+}
+
+/* --- ЭФФЕКТ МАТОВОГО СТЕКЛА НА КАРТОЧКАХ --- */
+
+/* Контейнер для наложения (лежит поверх картинки) */
+.card-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 75%; /* Закрывает только область постера, не трогая название внизу */
+    background: rgba(255, 255, 255, 0.03); /* Почти прозрачный белый фон */
+    backdrop-filter: blur(8px); /* То самое размытие "матовое стекло" */
+    -webkit-backdrop-filter: blur(8px); /* Поддержка для Safari */
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    opacity: 0; /* Изначально панель не видна */
+    transition: opacity 0.4s ease; /* Плавное появление */
+    z-index: 5;
+    pointer-events: none; /* Пропускает клики сквозь себя на основную карточку */
+}
+
+/* При наведении на всю карточку (.card), показываем нашу панель (.card-overlay) */
+.card:hover .card-overlay {
+    opacity: 1;
+}
+
+/* Стили для текста внутри "стекла" */
+.overlay-score-item {
+    text-align: center;
+    margin: 8px 0;
+}
+
+.overlay-label {
+    font-size: 0.65rem;
+    color: #888;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    margin-bottom: 2px;
+}
+
+.overlay-val {
+    font-size: 1.8rem; /* Шрифт стал заметно крупнее */
+    font-weight: 900;
+    color: #fff;
+    text-shadow: 0 0 15px rgba(255, 255, 255, 0.4); /* Сияние стало чуть ярче для контраста */
 }
