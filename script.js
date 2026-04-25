@@ -101,6 +101,25 @@ async function login() {
 }
 
 /**
+ * Вход в режиме гостя (только чтение)
+ */
+function loginAsGuest() {
+    currentRole = 'guest';
+    // Создаем виртуальные данные для гостя (в базу они не сохраняются)
+    currentUserData = { role: 'guest', nickname: 'Гость', avatar_url: '' };
+
+    localStorage.setItem('movie_role', currentRole);
+    localStorage.setItem('movie_user_data', JSON.stringify(currentUserData));
+
+    document.getElementById('auth-screen').style.display = 'none';
+    
+    updateUserProfileUI();
+    showToast("ВЫ ВОШЛИ В РЕЖИМЕ ГОСТЯ", "info");
+    
+    fetchMovies();
+}
+
+/**
  * Выход из системы
  * Очищает localStorage и перезагружает страницу
  */
@@ -130,6 +149,13 @@ async function fetchMovies() {
             users.forEach(u => {
                 userNicknames[u.role] = u.nickname;
             });
+            
+            // --- НОВОЕ: Динамически переименовываем фильтры ---
+            const optMe = document.querySelector('#filter-assessment option[value="only_me"]');
+            const optAny = document.querySelector('#filter-assessment option[value="only_any"]');
+            
+            if (optMe) optMe.textContent = `Оценил ${userNicknames.me}`;
+            if (optAny) optAny.textContent = `Оценил ${userNicknames.any}`;
         }
 
         // 2. Теперь скачиваем сами фильмы
@@ -191,8 +217,8 @@ async function saveRatings() {
     
     // Сохраняем оценки текущего пользователя
     ['plot', 'ending', 'reviewability', 'actors', 'atmosphere', 'music'].forEach(f => {
-        const input = document.getElementById(`input-${f}_${currentUser}`);
-        if (input) updateData[`${f}_${currentUser}`] = parseInt(input.value) || 0;
+        const input = document.getElementById(`input-${f}_${currentRole}`);
+        if (input) updateData[`${f}_${currentRole}`] = parseInt(input.value) || 0;
     });
     
     const { error } = await supabaseClient.from('movies').update(updateData).eq('id', currentMovieId);
@@ -373,6 +399,17 @@ function fillSelect(id, set, label) {
     });
 }
 
+
+
+// Таймер для умного поиска
+let searchTimeout = null;
+
+function debouncedSearch() {
+    clearTimeout(searchTimeout);
+    searchTimeout = setTimeout(() => {
+        applyFilters();
+    }, 300); // Ждем 300 миллисекунд после последнего нажатия клавиши
+}
 /**
  * Применяет все активные фильтры (поиск, жанр, режиссер, статус оценки)
  * и сортирует результаты
@@ -405,7 +442,13 @@ function applyFilters() {
             // Если фильм не просмотрен — убираем его из списков кроме "not_watched"
             if (!isWatched) return false;
 
-            if (assessment === 'both') matchesAssessment = hasMe && hasAny;
+            if (assessment === 'all') {
+                // Скрываем чужие соло-фильмы из вкладки "Все оценки"
+                if (m.view_type !== 'both' && m.view_type !== currentRole && currentRole !== 'guest') {
+                    matchesAssessment = false;
+                }
+            }
+            else if (assessment === 'both') matchesAssessment = hasMe && hasAny;
             else if (assessment === 'only_me') matchesAssessment = hasMe && !hasAny;
             else if (assessment === 'only_any') matchesAssessment = !hasMe && hasAny;
             else if (assessment === 'none') matchesAssessment = !hasMe && !hasAny;
@@ -500,6 +543,9 @@ function renderMovies(movies) {
     const grid = document.getElementById('movie-grid'); 
     grid.innerHTML = ''; 
     
+    // Создаем виртуальный фрагмент (он живет только в памяти)
+    const fragment = document.createDocumentFragment();
+    
     movies.forEach((m, index) => {
         const r = calculateRating(m);
 
@@ -518,15 +564,28 @@ function renderMovies(movies) {
         }
 
         const dateToShow = m.updated_at || m.created_at;
-        const viewedBadge = m.status === 'Просмотрено' ? `<div class="viewed-badge">Просмотрено</div>` : '';
+        // Плашка "Просмотрено" показывается только для общих фильмов или ВАШИХ соло-фильмов
+       // --- ЛОГИКА ЕДИНОЙ СТЕКЛЯННОЙ ПЛАШКИ ---
+        let movieBadgeHTML = '';
+
+        // 1. Случай: Общий просмотр (показываем "ПРОСМОТРЕНО")
+        if (m.status === 'Просмотрено' && (m.view_type === 'both' || m.view_type === currentRole)) {
+            movieBadgeHTML = `<div class="glass-badge"><span>✓</span> ПРОСМОТРЕНО</div>`;
+        } 
         
+        // 2. Случай: Соло просмотр друга (показываем "ПРОСМОТРЕЛ ИМЯ")
+        else if (m.view_type !== 'both' && m.view_type !== currentRole && m.view_type !== 'guest') {
+            const ownerName = userNicknames[m.view_type] ? userNicknames[m.view_type].toUpperCase() : 'ДРУГ';
+            movieBadgeHTML = `<div class="glass-badge"><span>🛈</span> ОЦЕНИЛ ${ownerName}</div>`;
+        }
+
         const card = document.createElement('div');
         card.className = 'card';
         card.style.animationDelay = `${index * 0.05}s`;
         card.onclick = () => openModalById(m.id);
         
         card.innerHTML = `
-            ${viewedBadge}
+            ${movieBadgeHTML}
             
             <div class="card-overlay">
                 <div class="overlay-score-item">
@@ -540,17 +599,21 @@ function renderMovies(movies) {
                 </div>
             </div>
 
-            <img src="${m.poster || 'https://via.placeholder.com/180x260?text=No+Poster'}">
+            <img src="${m.poster || 'https://via.placeholder.com/180x260?text=No+Poster'}" loading="lazy" alt="${m.title}">
             <div class="card-info">
                 <div class="card-top-content">
-                    <h3 style="margin: 0 0 8px 0; font-size: 0.9rem; line-height: 1.2;">${m.title}</h3>
+                    <h3 style="margin: 0 0 8px 0; font-size: 0.9rem; line-height: 1.2; min-height: 2.4em; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; text-overflow: ellipsis;" title="${m.title}">${m.title}</h3>
                     <span class="rating-badge" style="${badgeStyle}">${r.total.toFixed(1)}</span>
                 </div>
                 <div class="card-date">Обновлено: ${formatDate(dateToShow)}</div>
             </div>`;
             
-        grid.appendChild(card);
+        // Добавляем карточку в виртуальный фрагмент, а не сразу на экран
+        fragment.appendChild(card);
     });
+    
+    // Вставляем все 100 карточек за 1 раз!
+    grid.appendChild(fragment);
 }
 
 // ==========================================
@@ -647,6 +710,21 @@ function renderModalContent(m) {
                     <input type="hidden" id="edit-status" value="${m.status}">
                 </div>
 
+                ${m.view_type !== 'both' && m.view_type !== 'guest' ? `
+                    ${m.view_type !== currentRole ? `
+                        <div style="background: rgba(192, 192, 192, 0.05); border: 1px dashed #333; padding: 15px; border-radius: 12px; margin: 15px 0; text-align: center;">
+                            <p style="font-size: 0.7rem; color: #888; text-transform: uppercase; margin-bottom: 10px;">Этот фильм посмотрел только ${userNicknames[m.view_type] || 'Друг'}</p>
+                            <button onclick="joinMovie()" style="background: #c0c0c0; color: #000; border: none; padding: 8px 15px; border-radius: 8px; font-weight: bold; cursor: pointer; font-size: 0.7rem; text-transform: uppercase;">
+                                Я тоже посмотрел!
+                            </button>
+                        </div>
+                    ` : `
+                        <div style="margin: 15px 0; text-align: center;">
+                            <span style="font-size: 0.6rem; color: #555; text-transform: uppercase; letter-spacing: 1px;">Это ваш соло-просмотр</span>
+                        </div>
+                    `}
+                ` : ''}
+
                 <br>
                 <button onclick='toggleEditMode()' style="font-size:0.6rem; background:none; border:1px solid #333; color:#555; cursor:pointer; padding:4px 8px; border-radius:4px; margin-top:10px;">
                     ${isEditMode ? 'ОТМЕНИТЬ ПРАВКУ' : 'ИЗМЕНИТЬ ДАННЫЕ'}
@@ -654,24 +732,32 @@ function renderModalContent(m) {
             </div>
         </div>
 
+
         <div class="total-score-big" style="text-align: center;">
             <h2 id="total-val">${r.total.toFixed(1)}</h2>
         </div>
 
         <div style="display: flex; flex-direction: column; gap: 20px;">
-            <div class="${currentUser !== 'me' ? 'locked-group' : ''}">
+            <div class="${currentRole !== 'me' ? 'locked-group' : ''}">
                 <p style="text-align:center; font-size:0.7rem; color:#c0c0c0; text-transform:uppercase; margin-bottom:10px;">ОЦЕНКА ${userNicknames.me.toUpperCase()}: ${r.me.toFixed(1)}</p>
                 ${renderSliders(m, 'me')}
             </div>
-            <div style="border-top: 1px solid #222; padding-top: 20px;" class="${currentUser !== 'any' ? 'locked-group' : ''}">
+            <div style="border-top: 1px solid #222; padding-top: 20px;" class="${currentRole !== 'any' ? 'locked-group' : ''}">
                 <p style="text-align:center; font-size:0.7rem; color:#c0c0c0; text-transform:uppercase; margin-bottom:10px;">ОЦЕНКА ${userNicknames.any.toUpperCase()}: ${r.any.toFixed(1)}</p>
                 ${renderSliders(m, 'any')}
             </div>
         </div>
 
-        <textarea id="review-common" placeholder="Общий комментарий..." style="margin-top:20px;">${m.review_common || ''}</textarea>
-        <button onclick="saveRatings()" class="save-btn">СОХРАНИТЬ</button>
-        <button onclick="deleteMovie()" style="background:none; color:#333; border:none; width:100%; margin-top:10px; cursor:pointer; font-size:0.7rem;">УДАЛИТЬ ФИЛЬМ</button>
+        <textarea id="review-common" placeholder="Общий комментарий..." style="margin-top:20px;" ${currentRole === 'guest' ? 'disabled' : ''}>${m.review_common || ''}</textarea>
+        
+        ${currentRole !== 'guest' ? `
+            <button onclick="saveRatings()" class="save-btn" style="margin-top:15px;">СОХРАНИТЬ</button>
+            <button onclick="deleteMovie()" style="background:none; color:#333; border:none; width:100%; margin-top:10px; cursor:pointer; font-size:0.7rem;">УДАЛИТЬ ФИЛЬМ</button>
+        ` : `
+            <div style="text-align:center; padding:12px; color:#888; border:1px dashed #333; border-radius:10px; margin-top:20px; font-size:0.7rem; text-transform:uppercase;">
+                В режиме гостя редактирование запрещено
+            </div>
+        `}
         
         <div style="text-align:center; color:#333; font-size:0.6rem; margin-top:15px; text-transform:uppercase; letter-spacing:1px;">
             Последнее изменение: ${formatDate(dateToShow)}
@@ -723,7 +809,7 @@ function toggleMovieStatus() {
  * @returns {string} HTML с ползунками
  */
 function renderSliders(m, role) {
-    const isLocked = (role !== currentUser);
+    const isLocked = (role !== currentRole);
     const fields = ['plot', 'ending', 'reviewability', 'actors', 'atmosphere', 'music'];
     const labels = ['СЮЖЕТ', 'КОНЦОВКА', 'ПЕРЕСМ.', 'АКТЕРЫ', 'АТМОСФЕРА', 'ЗВУК'];
     
@@ -861,8 +947,13 @@ document.getElementById('add-movie-form').addEventListener('submit', async (e) =
     }
     // ==========================================
     
+    // Проверяем, нажата ли галочка "Соло"
+    const isSolo = document.getElementById('new-solo-view').checked;
+    // Если нажата - записываем роль того, кто добавляет. Если нет - записываем 'both'
+    const viewType = isSolo ? currentRole : 'both';
+
     const newMovie = { 
-        title: newTitle, // Используем уже очищенное от пробелов название
+        title: newTitle, 
         poster: document.getElementById('new-poster').value,
         year: document.getElementById('new-year').value, 
         duration: parseInt(document.getElementById('new-duration').value) || 0,
@@ -872,6 +963,7 @@ document.getElementById('add-movie-form').addEventListener('submit', async (e) =
         external_rating: tempExternalRating,
         kp_rating: document.getElementById('new-kp-rating') ? document.getElementById('new-kp-rating').value : null,
         status: document.getElementById('new-status').value, 
+        view_type: viewType, // <--- ОТПРАВЛЯЕМ ТИП ПРОСМОТРА В БАЗУ
         updated_at: new Date().toISOString() 
     };
     
@@ -944,7 +1036,8 @@ function switchTab(tab) {
 
 function generateStatistics() {
     const container = document.getElementById('stats-container');
-    const viewed = allMovies.filter(m => m.status === 'Просмотрено');
+    // В общую статистику теперь идут ТОЛЬКО совместные фильмы ('both')
+    const viewed = allMovies.filter(m => m.status === 'Просмотрено' && m.view_type === 'both');
     
     if (!viewed.length) {
         container.innerHTML = "<p style='text-align:center; color:#555;'>Нет данных.</p>";
@@ -1104,6 +1197,54 @@ function generateStatistics() {
     // Ищем максимальный балл для 100% полоски
     const maxScore = sortedGenres.length > 0 ? sortedGenres[0].score : 1;
 
+    // ==========================================
+    // НОВЫЕ РАСЧЕТЫ ДЛЯ "ИНТЕРЕСНО, ЧТО..."
+    // ==========================================
+    
+    // 1. Любимый режиссер
+    const directors = {};
+    viewed.forEach(m => {
+        if (m.producer) {
+            const prod = m.producer.trim();
+            if (!directors[prod]) directors[prod] = { count: 0, sum: 0 };
+            directors[prod].count++;
+            directors[prod].sum += calculateRating(m).total;
+        }
+    });
+    
+    let bestDirector = { name: '—', avg: 0 };
+    for (const [name, data] of Object.entries(directors)) {
+        const avg = data.sum / data.count;
+        if (avg > bestDirector.avg) bestDirector = { name, avg };
+    }
+
+    // Вспомогательная функция для получения оценки мира (КП в приоритете)
+    const getWorldRating = (m) => parseFloat(m.kp_rating) || parseFloat(m.external_rating) || 0;
+
+    // 2. Скрытый шедевр и Главное разочарование
+    let hiddenGem = { title: '—', diff: -999, our: 0, world: 0 };
+    let disappointment = { title: '—', diff: -999, our: 0, world: 0 };
+
+    viewed.forEach(m => {
+        const ourScore = calculateRating(m).total;
+        const worldScore = getWorldRating(m);
+        
+        if (worldScore > 0) { // Считаем, только если есть оценка от мира
+            // Скрытый шедевр (Наша оценка ВЫШЕ мировой)
+            const gemDiff = ourScore - worldScore;
+            if (gemDiff > hiddenGem.diff) {
+                hiddenGem = { title: m.title, diff: gemDiff, our: ourScore, world: worldScore };
+            }
+            
+            // Разочарование (Мировая оценка ВЫШЕ нашей)
+            const disapDiff = worldScore - ourScore;
+            if (disapDiff > disappointment.diff) {
+                disappointment = { title: m.title, diff: disapDiff, our: ourScore, world: worldScore };
+            }
+        }
+    });
+    // ==========================================
+
     // Генерируем HTML полосок
     const genreBarsHTML = sortedGenres.map((g, index) => {
         const relativeWidth = (g.score / maxScore) * 100;
@@ -1180,6 +1321,22 @@ function generateStatistics() {
                 <p style="font-size:0.55rem; color:#555; margin:0 0 8px 0;">ЛЮБИМЫЙ ЖАНР</p>
                 <div style="font-size:0.85rem;">${sortedGenres.length ? sortedGenres[0].name : '—'}</div>
                 <span>Ср. балл: ${sortedGenres.length ? sortedGenres[0].avg.toFixed(1) : '—'}</span>
+            </div>
+            
+            <div class="record-card">
+                <p style="font-size:0.55rem; color:#555; margin:0 0 8px 0;">ЛЮБИМЫЙ РЕЖИССЕР</p>
+                <div style="font-size:0.85rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="${bestDirector.name}">${bestDirector.name}</div>
+                <span>Ср. балл: ${bestDirector.avg.toFixed(1)}</span>
+            </div>
+            <div class="record-card">
+                <p style="font-size:0.55rem; color:#555; margin:0 0 8px 0;">СКРЫТЫЙ ШЕДЕВР</p>
+                <div style="font-size:0.85rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="${hiddenGem.title}">${hiddenGem.title}</div>
+                <span>Вы: ${hiddenGem.our.toFixed(1)} | Мир: ${hiddenGem.world.toFixed(1)}</span>
+            </div>
+            <div class="record-card">
+                <p style="font-size:0.55rem; color:#555; margin:0 0 8px 0;">РАЗОЧАРОВАНИЕ</p>
+                <div style="font-size:0.85rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="${disappointment.title}">${disappointment.title}</div>
+                <span>Вы: ${disappointment.our.toFixed(1)} | Мир: ${disappointment.world.toFixed(1)}</span>
             </div>
         </div>
 
@@ -1514,6 +1671,12 @@ function renderSectors(ctx, centerX, centerY, radius, sliceAngle, angleOffset, o
  * Использует плавную анимацию и выбирает случайный фильм
  */
 function spinRoulette() {
+
+    if (currentRole === 'guest') {
+        showToast("ГОСТЯМ НЕЛЬЗЯ КРУТИТЬ РУЛЕТКУ", "warning");
+        return;
+    }
+
     if (isSpinning || currentRouletteMovies.length < 2) return;
 
     stopIdleSpin(); // Останавливаем фон перед основным броском
@@ -1827,6 +1990,12 @@ function handleDrumTouchEnd() {
  * Автоматическое вращение по кнопке "КРУТИТЬ БАРАБАН"
  */
 function spinDrum() {
+
+    if (currentRole === 'guest') {
+        showToast("ГОСТЯМ НЕЛЬЗЯ КРУТИТЬ РУЛЕТКУ", "warning");
+        return;
+    }
+
     if (isSpinning || currentRouletteMovies.length < 2) return;
     isSpinning = true;
     
@@ -2084,41 +2253,239 @@ function updateUserProfileUI() {
     } else {
         avatarImg.src = `https://ui-avatars.com/api/?name=${currentUserData.nickname}&background=1a1a1a&color=c0c0c0`;
     }
+
+    // --- Ограничения гостя: скрываем админ-панель добавления фильмов ---
+    const adminPanel = document.querySelector('.admin-panel');
+    if (adminPanel) {
+        adminPanel.style.display = currentRole === 'guest' ? 'none' : 'block';
+    }
 }
+
+
 
 // 2. Открывает окно профиля и загружает туда статистику
 function openProfileModal() {
     if (!currentUserData) return;
+    if (currentRole === 'guest') {
+        showToast("ПРОФИЛЬ ГОСТЯ НЕЛЬЗЯ ИЗМЕНИТЬ", "warning");
+        return;
+    }
     
-    // Заполняем поля ввода текущими данными
+    // Заполняем поля ввода
     document.getElementById('profile-nickname-input').value = currentUserData.nickname;
     document.getElementById('profile-avatar-input').value = currentUserData.avatar_url || "";
-    document.getElementById('profile-password-input').value = ""; // Пароль оставляем пустым
+    document.getElementById('profile-password-input').value = ""; 
     
-    // Считаем личную статистику
-    let ratedCount = 0;
-    let totalScore = 0;
-    
-    allMovies.forEach(m => {
-        const score = currentRole === 'me' ? m.score_me : m.score_any;
-        if (score) {
-            ratedCount++;
-            totalScore += Number(score);
-        }
-    });
-    
-    const avgScore = ratedCount > 0 ? (totalScore / ratedCount).toFixed(2) : "0.00";
-    
-    // Выводим статистику
-    document.getElementById('profile-stat-count').innerText = ratedCount;
-    document.getElementById('profile-stat-avg').innerText = avgScore;
-    
-    // Обновляем большое фото в профиле
     const preview = document.getElementById('profile-avatar-preview');
     if (currentUserData.avatar_url) preview.src = currentUserData.avatar_url;
     else preview.src = `https://ui-avatars.com/api/?name=${currentUserData.nickname}&background=1a1a1a&color=c0c0c0`;
 
-    document.getElementById('profile-modal').style.display = 'flex';
+    // === ВЫЧИСЛЯЕМ ЛИЧНУЮ СТАТИСТИКУ ===
+    
+    // 1. Фильмы для счетчиков (Оценено/Часы): Общие + Твои Соло
+    const myWatchedMovies = allMovies.filter(m => 
+        m.status === 'Просмотрено' && (m.view_type === 'both' || m.view_type === currentRole)
+    );
+
+    // 2. Фильмы для рейтингов (Радар/Жанры): Только те, где ты уже выставил оценки
+    const myRatedMovies = myWatchedMovies.filter(m => {
+        const myScore = (Number(m['plot_' + currentRole] || 0) + Number(m['ending_' + currentRole] || 0) + 
+                         Number(m['reviewability_' + currentRole] || 0) + Number(m['actors_' + currentRole] || 0) + 
+                         Number(m['atmosphere_' + currentRole] || 0) + Number(m['music_' + currentRole] || 0));
+        return myScore > 0;
+    });
+
+    // --- Базовые метрики ---
+    let totalScore = 0;
+    let totalMinutes = 0;
+    let myScoresData = []; 
+    let radarScores = { plot: 0, ending: 0, reviewability: 0, actors: 0, atmosphere: 0, music: 0 };
+
+    // Считаем часы по ВСЕМ твоим фильмам
+    myWatchedMovies.forEach(m => {
+        totalMinutes += (parseInt(m.duration) || 0);
+    });
+
+    // Считаем баллы и радар ТОЛЬКО по оцененным
+    myRatedMovies.forEach(m => {
+        const score = calculateRating(m)[currentRole]; 
+        totalScore += score;
+        myScoresData.push({ movie: m, score: score });
+
+        radarScores.plot += Number(m['plot_' + currentRole] || 0);
+        radarScores.ending += Number(m['ending_' + currentRole] || 0);
+        radarScores.reviewability += Number(m['reviewability_' + currentRole] || 0);
+        radarScores.actors += Number(m['actors_' + currentRole] || 0);
+        radarScores.atmosphere += Number(m['atmosphere_' + currentRole] || 0);
+        radarScores.music += Number(m['music_' + currentRole] || 0);
+    });
+    
+    const countWatched = myWatchedMovies.length;
+    const countRated = myRatedMovies.length;
+    const avgScore = countRated > 0 ? (totalScore / countRated).toFixed(2) : "0.00";
+    
+    document.getElementById('profile-stat-count').innerText = countWatched;
+    document.getElementById('profile-stat-avg').innerText = avgScore;
+    document.getElementById('profile-stat-time').innerHTML = `${Math.floor(totalMinutes/60)}<span style="font-size:0.8rem">ч</span> ${totalMinutes%60}<span style="font-size:0.8rem">м</span>`;
+
+    // --- Любимые фильмы (Топ-3) ---
+    const favMoviesContainer = document.getElementById('profile-fav-movies');
+    favMoviesContainer.innerHTML = '';
+    
+    if (countRated > 0) {
+        myScoresData.sort((a, b) => {
+            if (b.score !== a.score) return b.score - a.score;
+            return new Date(b.movie.updated_at || 0) - new Date(a.movie.updated_at || 0);
+        });
+
+        const top3 = myScoresData.slice(0, 3);
+        top3.forEach(item => {
+            const m = item.movie;
+            favMoviesContainer.innerHTML += `
+                <div style="flex: 0 0 100px; text-align: center;">
+                    <img src="${m.poster || 'https://via.placeholder.com/100x150?text=Нет+постера'}" style="width: 100px; height: 150px; object-fit: cover; border-radius: 8px; border: 1px solid #333; margin-bottom: 5px; box-shadow: 0 4px 10px rgba(0,0,0,0.5);">
+                    <div style="font-size: 0.65rem; color: #ccc; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: bold;" title="${m.title}">${m.title}</div>
+                    <div style="font-size: 0.8rem; color: #c0c0c0; font-weight: 900;">${item.score.toFixed(1)}</div>
+                </div>
+            `;
+        });
+    } else {
+        favMoviesContainer.innerHTML = '<div style="color: #555; font-size: 0.8rem;">Нет оцененных фильмов</div>';
+    }
+
+    // --- Топ-10 Жанров ---
+    const genreData = {};
+    myRatedMovies.forEach(m => {
+        if (m.genre) {
+            m.genre.split(',').forEach(g => {
+                const name = g.trim().toUpperCase();
+                if (!genreData[name]) genreData[name] = { count: 0, totalScore: 0 };
+                genreData[name].count++;
+                genreData[name].totalScore += calculateRating(m)[currentRole];
+            });
+        }
+    });
+
+    const sortedGenres = Object.entries(genreData)
+        .map(([name, data]) => ({ name, count: data.count, avg: data.totalScore / data.count, score: (data.totalScore / data.count) * (1 + Math.log10(data.count)) }))
+        .sort((a, b) => b.score - a.score)
+        .slice(0, 10);
+
+    const genresContainer = document.getElementById('profile-genres');
+    if (sortedGenres.length > 0) {
+        const maxScore = sortedGenres[0].score;
+        genresContainer.innerHTML = sortedGenres.map((g, index) => {
+            const relativeWidth = (g.score / maxScore) * 100;
+            let medalClass = "genre-fill"; 
+            if (index === 0) medalClass += " bar-gold";
+            else if (index === 1) medalClass += " bar-silver";
+            else if (index === 2) medalClass += " bar-bronze";
+
+            return `
+                <div class="genre-item" style="margin-bottom: 8px;">
+                    <div class="genre-name" style="${index < 3 ? 'color: #fff; font-weight: bold;' : 'font-size: 0.65rem;'} width: 90px;">
+                        ${g.name}
+                    </div>
+                    <div class="genre-track" style="height: 6px;">
+                        <div class="${medalClass}" style="width: ${relativeWidth}%; height: 100%;"></div>
+                    </div>
+                    <div class="genre-info" style="min-width: 50px; font-size: 0.6rem;">
+                        <span style="color: #eee;">${g.avg.toFixed(1)}</span> <span style="color: #444;">(${g.count})</span>
+                    </div>
+                </div>
+            `;
+        }).join('');
+    } else {
+        genresContainer.innerHTML = '<div style="color: #555; font-size: 0.8rem;">Нет данных по жанрам</div>';
+    }
+
+    // Открываем окно
+    document.getElementById('profile-modal').style.display = 'block';
+
+    // --- Отрисовка радара ---
+    if (countRated > 0) {
+        for (let k in radarScores) radarScores[k] /= countRated; 
+        setTimeout(() => drawProfileRadar(radarScores), 50);
+    }
+}
+
+/**
+ * Отрисовывает мини-радар для профиля пользователя
+ */
+function drawProfileRadar(stats) {
+    const canvas = document.getElementById('profileRadarCanvas');
+    if (!canvas) return;
+
+    const dpr = window.devicePixelRatio || 1;
+    const rect = canvas.parentElement.getBoundingClientRect();
+    if (rect.width === 0) return; // Защита от скрытого окна
+
+    canvas.width = rect.width * dpr;
+    canvas.height = rect.height * dpr;
+    const ctx = canvas.getContext('2d');
+    ctx.scale(dpr, dpr);
+
+    const centerX = rect.width / 2;
+    const centerY = rect.height / 2;
+    const radius = Math.min(centerX, centerY) - 15; 
+
+    const labels = ['СЮЖ.', 'КОНЦ.', 'ПЕРЕС.', 'АКТ.', 'АТМ.', 'ЗВУК'];
+    const keys = ['plot', 'ending', 'reviewability', 'actors', 'atmosphere', 'music'];
+    const angleStep = (Math.PI * 2) / 6;
+
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.font = 'bold 8px "Segoe UI", sans-serif';
+
+    // Сетка
+    for (let level = 1; level <= 5; level++) {
+        const r = radius * (level / 5);
+        ctx.beginPath();
+        for (let i = 0; i < 6; i++) {
+            const angle = i * angleStep - Math.PI / 2;
+            const x = centerX + Math.cos(angle) * r;
+            const y = centerY + Math.sin(angle) * r;
+            if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+        }
+        ctx.closePath();
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.05)';
+        ctx.stroke();
+    }
+
+    // Оси и текст
+    for (let i = 0; i < 6; i++) {
+        const angle = i * angleStep - Math.PI / 2;
+        const x = centerX + Math.cos(angle) * radius;
+        const y = centerY + Math.sin(angle) * radius;
+        
+        ctx.beginPath();
+        ctx.moveTo(centerX, centerY);
+        ctx.lineTo(x, y);
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
+        ctx.stroke();
+
+        const labelX = centerX + Math.cos(angle) * (radius + 10);
+        const labelY = centerY + Math.sin(angle) * (radius + 10);
+        ctx.fillStyle = '#777';
+        ctx.fillText(labels[i], labelX, labelY);
+    }
+
+    // Рисуем сам многоугольник (Silver & Dark стиль)
+    ctx.beginPath();
+    keys.forEach((key, i) => {
+        const r = radius * (stats[key] / 10); 
+        const angle = i * angleStep - Math.PI / 2;
+        const x = centerX + Math.cos(angle) * r;
+        const y = centerY + Math.sin(angle) * r;
+        if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    });
+    ctx.closePath();
+    
+    ctx.fillStyle = 'rgba(192, 192, 192, 0.2)';
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.9)';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
 }
 
 // 3. Закрывает окно профиля
@@ -2163,4 +2530,41 @@ async function saveProfile() {
     
     // Перерисовываем список фильмов, чтобы обновить ники на карточках
     renderMovies(filteredMovies.length ? filteredMovies : allMovies); 
+}
+
+/**
+ * Переводит фильм из Соло в Общий просмотр
+ */
+async function joinMovie() {
+    // Тот самый вопрос "Вы уверены?"
+    const confirmed = confirm("Вы подтверждаете, что тоже посмотрели этот фильм? Это разблокирует ваши оценки и добавит фильм в общую статистику.");
+    
+    if (!confirmed) return;
+
+    try {
+        const { error } = await supabaseClient
+            .from('movies')
+            .update({ view_type: 'both' })
+            .eq('id', currentMovieId);
+
+        if (error) {
+            showToast("ОШИБКА ОБНОВЛЕНИЯ", "error");
+            console.error(error);
+        } else {
+            showToast("ТЕПЕРЬ ЭТО ОБЩИЙ ПРОСМОТР!", "success");
+            
+            // Обновляем данные локально и перерисовываем окно
+            const movie = allMovies.find(m => m.id === currentMovieId);
+            if (movie) movie.view_type = 'both';
+            
+            // Маленькая пауза для красоты и закрываем/открываем для обновления UI
+            setTimeout(() => {
+                const updatedMovie = allMovies.find(m => m.id === currentMovieId);
+                renderModalContent(updatedMovie);
+                fetchMovies(); // Обновляем сетку, чтобы убрать замок
+            }, 500);
+        }
+    } catch (err) {
+        showToast("СБОЙ СЕТИ", "error");
+    }
 }

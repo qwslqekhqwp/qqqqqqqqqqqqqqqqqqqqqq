@@ -274,11 +274,9 @@ button {
     animation: fadeInUp 0.5s ease forwards;
 }
 
-@media (hover: hover) {
-    .card:hover {
-        transform: translateY(-5px);
-        border-color: #c0c0c0;
-    }
+.card:hover {
+    transform: translateY(-5px);
+    border-color: #c0c0c0;
 }
 
 .card img {
@@ -330,26 +328,6 @@ button {
     margin-left: 8px;
 }
 
-.viewed-badge {
-    position: absolute;
-    top: 10px;
-    left: 50%;
-    transform: translateX(-50%);
-    background: rgba(192, 192, 192, 0.2);
-    backdrop-filter: blur(5px);
-    color: #fff;
-    padding: 4px 12px;
-    border-radius: 8px;
-    font-size: 0.6rem;
-    font-weight: bold;
-    text-transform: uppercase;
-    letter-spacing: 1px;
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
-    z-index: 2;
-    white-space: nowrap;
-    pointer-events: none;
-}
 
 .viewed-badge::before {
     content: '✓ ';
@@ -1151,18 +1129,33 @@ input[type="range"]::-webkit-slider-thumb {
 }
 
 /* При наведении показываем панель (ТОЛЬКО для устройств с настоящей мышкой) */
-@media (hover: hover) {
-    .card:hover .card-overlay {
-        opacity: 1;
-    }
+.card:hover .card-overlay {
+    opacity: 1;
+}
+
+/* Стили для текста внутри "стекла" */
+.overlay-score-item {
+    text-align: center;
+    margin: 8px 0;
+    width: 100%; 
+    display: flex;
+    flex-direction: column;
+    align-items: center; 
 }
 
 .overlay-label {
-    font-size: 0.65rem;
+    font-size: 0.6rem; /* Чуть уменьшили шрифт для длинных ников */
     color: #888;
     text-transform: uppercase;
-    letter-spacing: 1.5px;
+    letter-spacing: 1px;
     margin-bottom: 2px;
+    
+    /* Жесткое адаптивное ограничение ширины (не в пикселях, а в процентах) */
+    max-width: 90%; 
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    display: block;
 }
 
 .overlay-val {
@@ -1261,4 +1254,39 @@ input[type="range"]::-webkit-slider-thumb {
 #profile-password-input:focus {
     border-color: #c0c0c0 !important;
     box-shadow: 0 0 10px rgba(192, 192, 192, 0.1);
+}
+
+/* --- СТЕКЛЯННАЯ ПЛАШКА ДЛЯ ЧУЖОГО СОЛО-ФИЛЬМА --- */
+/* --- УНИВЕРСАЛЬНАЯ СТЕКЛЯННАЯ ПЛАШКА --- */
+.glass-badge {
+    position: absolute;
+    top: 10px;
+    left: 50%;
+    transform: translateX(-50%);
+    
+    /* Идентичный вид: матовое стекло */
+    background: rgba(192, 192, 192, 0.2); 
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    
+    color: #fff;
+    padding: 4px 12px;
+    border-radius: 8px;
+    font-size: 0.6rem;
+    font-weight: bold;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    
+    /* Сплошная тонкая рамка для обеих плашек */
+    border: 1px solid rgba(255, 255, 255, 0.1); 
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
+    
+    z-index: 10;
+    white-space: nowrap;
+    pointer-events: none;
+    
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px; /* Отступ между иконкой и текстом */
 }

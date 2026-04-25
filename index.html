@@ -15,13 +15,17 @@
             <h2>ВХОД В СИСТЕМУ</h2>
             <input type="password" id="secret-code" placeholder="Секретный код" style="text-align: center;">
             <button onclick="login()" class="save-btn">ПОДТВЕРДИТЬ</button>
+            
+            <button onclick="loginAsGuest()" style="background: transparent; color: #888; border: 1px solid #333; margin-top: 10px; width: 100%; padding: 12px; border-radius: 10px; cursor: pointer; font-size: 0.75rem; text-transform: uppercase; font-weight: bold; transition: all 0.3s ease;" onmouseover="this.style.borderColor='#888'; this.style.color='#c0c0c0'" onmouseout="this.style.borderColor='#333'; this.style.color='#888'">
+                Войти как гость
+            </button>
         </div>
     </div>
 
     <div class="header-controls">
         
         <div id="user-profile-btn" onclick="openProfileModal()">
-            <img id="nav-avatar" src="https://via.placeholder.com/150/1a1a1a/c0c0c0?text=?" alt="Аватар">
+            <img id="nav-avatar" src="https://ui-avatars.com/api/?name=?&background=1a1a1a&color=c0c0c0" alt="Аватар">
             <span id="nav-nickname">ЗАГРУЗКА...</span>
         </div>
 
@@ -55,13 +59,19 @@
                     <input type="number" id="new-kp-rating" placeholder="Рейтинг КП " step="0.1" min="0" max="10" style="grid-column: span 2;">
                     
                     <select id="new-status" style="grid-column: span 2;"><option value="Не просмотрено">Не просмотрено</option><option value="Просмотрено" selected>Просмотрено</option></select>
+                    
+                    <div style="grid-column: span 2; display: flex; align-items: center; gap: 10px; background: #1a1a1a; padding: 12px 15px; border-radius: 10px; border: 1px solid #333; margin-bottom: 10px;">
+                        <input type="checkbox" id="new-solo-view" style="width: 18px; height: 18px; margin: 0; cursor: pointer;">
+                        <label for="new-solo-view" style="font-size: 0.75rem; color: #aaa; cursor: pointer; text-transform: uppercase; letter-spacing: 1px;">Я смотрел этот фильм один (Соло)</label>
+                    </div>
+
                     <button type="submit" class="save-btn" style="grid-column: span 2;">Добавить фильм</button>
                 </form>
             </div>
         </div>
 
         <div style="max-width: 800px; margin: 0 auto 25px;">
-            <input type="text" id="search-input" placeholder="Поиск фильма..." oninput="applyFilters()">
+            <input type="text" id="search-input" placeholder="Поиск фильма..." oninput="debouncedSearch()">
             <div class="filters-container">
                 <select id="filter-genre" onchange="applyFilters()"></select>
                 <select id="filter-producer" onchange="applyFilters()"></select>
@@ -232,45 +242,65 @@
 
 
     <div id="profile-modal" class="modal" style="display: none;">
-    <div class="modal-content" style="max-width: 400px; text-align: center;">
-        <span class="close-modal" onclick="closeProfileModal()">&times;</span>
-        <h2 style="font-size: 1.2rem; margin-bottom: 20px; color: #c0c0c0; text-transform: uppercase; letter-spacing: 2px;">Настройки профиля</h2>
-        
-        <div class="profile-avatar-container">
-            <img id="profile-avatar-preview" src="https://via.placeholder.com/150/1a1a1a/c0c0c0?text=?" alt="Аватар">
-        </div>
+        <div class="modal-content" style="max-width: 600px; text-align: center; position: relative;"> 
+        <span class="close-modal" onclick="closeProfileModal()" style="position: absolute; top: 15px; right: 20px; font-size: 1.8rem; line-height: 1; z-index: 10;">&times;</span>
+            <h2 style="font-size: 1.2rem; margin-bottom: 20px; color: #c0c0c0; text-transform: uppercase; letter-spacing: 2px;">Личный профиль</h2>
 
-        <div style="text-align: left; margin-bottom: 15px;">
-            <label style="font-size: 0.6rem; color: #888; text-transform: uppercase; margin-bottom: 5px; display: block;">Никнейм</label>
-            <input type="text" id="profile-nickname-input" style="width: 100%; background: #161616; border: 1px solid #333; color: #fff; padding: 10px; border-radius: 12px; font-weight: bold; outline: none;">
-        </div>
-        
-        <div style="text-align: left; margin-bottom: 15px;">
-            <label style="font-size: 0.6rem; color: #888; text-transform: uppercase; margin-bottom: 5px; display: block;">Ссылка на аватарку (URL)</label>
-            <input type="text" id="profile-avatar-input" style="width: 100%; background: #161616; border: 1px solid #333; color: #fff; padding: 10px; border-radius: 12px; outline: none;" placeholder="https://...">
-        </div>
+            <div style="display: flex; gap: 20px; text-align: left; margin-bottom: 25px; flex-wrap: wrap;">
+                <div class="profile-avatar-container" style="margin-bottom: 0;">
+                    <img id="profile-avatar-preview" src="https://ui-avatars.com/api/?name=?&background=1a1a1a&color=c0c0c0" alt="Аватар">
+                </div>
+                <div style="flex: 1; min-width: 200px;">
+                    <label style="font-size: 0.6rem; color: #888; text-transform: uppercase; margin-bottom: 5px; display: block;">Никнейм</label>
+                    <input type="text" id="profile-nickname-input" style="width: 100%; background: #161616; border: 1px solid #333; color: #fff; padding: 10px; border-radius: 12px; font-weight: bold; outline: none; margin-bottom: 10px;">
 
-        <div style="text-align: left; margin-bottom: 25px;">
-            <label style="font-size: 0.6rem; color: #888; text-transform: uppercase; margin-bottom: 5px; display: block;">Новый пароль (для входа)</label>
-            <input type="text" id="profile-password-input" style="width: 100%; background: #161616; border: 1px solid #333; color: #fff; padding: 10px; border-radius: 12px; outline: none;" placeholder="Оставьте пустым, если не меняете">
-        </div>
+                    <label style="font-size: 0.6rem; color: #888; text-transform: uppercase; margin-bottom: 5px; display: block;">URL Аватарки</label>
+                    <input type="text" id="profile-avatar-input" style="width: 100%; background: #161616; border: 1px solid #333; color: #fff; padding: 10px; border-radius: 12px; outline: none; margin-bottom: 10px;" placeholder="https://...">
 
-        <div class="profile-stats">
-            <div class="stat-box">
-                <span class="stat-label">ОЦЕНЕНО ФИЛЬМОВ</span>
-                <span class="stat-value" id="profile-stat-count">0</span>
+                    <label style="font-size: 0.6rem; color: #888; text-transform: uppercase; margin-bottom: 5px; display: block;">Новый пароль</label>
+                    <input type="text" id="profile-password-input" style="width: 100%; background: #161616; border: 1px solid #333; color: #fff; padding: 10px; border-radius: 12px; outline: none;" placeholder="Оставьте пустым, если не меняете">
+                </div>
             </div>
-            <div class="stat-box">
-                <span class="stat-label">СРЕДНИЙ БАЛЛ</span>
-                <span class="stat-value" id="profile-stat-avg">0.00</span>
+
+            <button onclick="saveProfile()" style="width: 100%; background: #c0c0c0; color: #000; border: none; padding: 12px; border-radius: 12px; font-weight: 900; cursor: pointer; text-transform: uppercase; font-size: 0.9rem; margin-bottom: 25px;">
+                Сохранить настройки
+            </button>
+
+            <div class="stats-grid-main" style="margin-bottom: 25px;">
+                <div style="background:#111; padding:15px; border-radius:12px; text-align:center; border:1px solid #222;">
+                    <p style="color:#555; font-size:0.55rem; margin:0; letter-spacing: 1px;">ОЦЕНЕНО</p>
+                    <h2 id="profile-stat-count" style="font-size:1.5rem; margin:5px 0 0 0; color: #fff;">0</h2>
+                </div>
+                <div style="background:#111; padding:15px; border-radius:12px; text-align:center; border:1px solid #222;">
+                    <p style="color:#555; font-size:0.55rem; margin:0; letter-spacing: 1px;">СР. БАЛЛ</p>
+                    <h2 id="profile-stat-avg" style="font-size:1.5rem; margin:5px 0 0 0; color: #fff;">0.00</h2>
+                </div>
+                <div style="background:#111; padding:15px; border-radius:12px; text-align:center; border:1px solid #222;">
+                    <p style="color:#555; font-size:0.55rem; margin:0; letter-spacing: 1px;">ВРЕМЯ В КИНО</p>
+                    <h2 id="profile-stat-time" style="font-size:1.5rem; margin:5px 0 0 0; color: #fff;">0<span style="font-size:0.8rem">ч</span></h2>
+                </div>
+            </div>
+
+            <h3 style="font-size: 0.7rem; color: #555; text-transform: uppercase; letter-spacing: 2px; text-align: left; margin-bottom: 15px;">Любимые фильмы</h3>
+            <div id="profile-fav-movies" style="display: flex; gap: 15px; margin-bottom: 30px; overflow-x: auto; padding-bottom: 10px;">
+                </div>
+
+            <div style="display: flex; gap: 20px; flex-wrap: wrap; text-align: left;">
+                <div style="flex: 1; min-width: 180px; background:#111; padding:15px; border-radius:15px; border:1px solid #222;">
+                    <h3 style="font-size: 0.6rem; color: #555; text-transform: uppercase; letter-spacing: 1px; text-align: center; margin: 0 0 10px 0;">Вкусовой профиль</h3>
+                    <div style="position:relative; width:100%; aspect-ratio:1/1;">
+                        <canvas id="profileRadarCanvas" style="width:100%; height:100%;"></canvas>
+                    </div>
+                </div>
+                
+                <div style="flex: 1.5; min-width: 220px; background:#111; padding:15px; border-radius:15px; border:1px solid #222; max-height: 220px; overflow-y: auto;" class="genre-bar-container">
+                    <h3 style="font-size: 0.6rem; color: #555; text-transform: uppercase; letter-spacing: 1px; margin: 0 0 15px 0;">Топ-10 жанров</h3>
+                    <div id="profile-genres">
+                        </div>
+                </div>
             </div>
         </div>
-
-        <button onclick="saveProfile()" style="width: 100%; background: #c0c0c0; color: #000; border: none; padding: 12px; border-radius: 12px; font-weight: 900; cursor: pointer; text-transform: uppercase; font-size: 0.9rem;">
-            Сохранить изменения
-        </button>
     </div>
-</div>
 
     <script src="script.js"></script>
 </body>
