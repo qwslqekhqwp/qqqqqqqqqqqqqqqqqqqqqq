@@ -21,16 +21,18 @@ const ACCESS_CODES = {
 // 2. ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ
 // ==========================================
 
-let currentUser = localStorage.getItem('userRole');           // Текущий пользователь
-let currentUserName = localStorage.getItem('userName');       // Имя текущего пользователя
+let currentRole = localStorage.getItem('movie_role');          // Текущая роль (me или any)
+let currentUserData = null;                                   // Все данные профиля (ник, аватар)
+let userNicknames = { me: "УМНЫЙ", any: "НЕ УМНЫЙ" };        // Ники обоих пользователей (по умолчанию)
+
 let allMovies = [];                                           // Массив всех фильмов
 let currentMovieId = null;                                    // ID фильма в модальном окне
-let isEditMode = false;                                       // Режим редактирования данных фильма
-let tempExternalRating = null;                                // Временное хранилище рейтинга TMDB
+let isEditMode = false;                                       // Режим редактирования
+let tempExternalRating = null;                                // Рейтинг TMDB
 let currentRouletteMovies = [];                               // Фильмы для рулетки
-let isSpinning = false;                                       // Флаг вращения рулетки
+let isSpinning = false;                                       // Флаг вращения
 let wheelAngle = 0;  
-let currentRadarView = 'both'; // Состояние видимости графика: 'me', 'any', 'both'                                         // Текущий угол поворота колеса
+let currentRadarView = 'both';                                // Вид графика
 
 // ==========================================
 // 3. АУТЕНТИФИКАЦИЯ
@@ -42,17 +44,18 @@ let currentRadarView = 'both'; // Состояние видимости граф
  * Загружает фильмы если пользователь авторизован
  */
 function checkAuth() {
-    const authScreen = document.getElementById('auth-screen');
-    const userBadge = document.getElementById('user-display');
+    const savedRole = localStorage.getItem('movie_role');
+    const savedData = localStorage.getItem('movie_user_data'); // Достаем данные профиля
     
-    if (!currentUser) {
-        // Показываем экран входа
-        authScreen.style.display = 'flex'; 
+    if (savedRole && savedData) {
+        currentRole = savedRole;
+        currentUserData = JSON.parse(savedData); // Расшифровываем данные
+        
+        document.getElementById('auth-screen').style.display = 'none';
+        updateUserProfileUI(); // Обновляем шапку
+        fetchMovies(); // <--- Заменили на правильное название
     } else {
-        // Скрываем экран входа и загружаем данные
-        authScreen.style.display = 'none';
-        userBadge.innerText = currentUserName;
-        fetchMovies();
+        document.getElementById('auth-screen').style.display = 'flex';
     }
 }
 
@@ -60,17 +63,40 @@ function checkAuth() {
  * Вход в систему по секретному коду
  * Сохраняет роль и имя пользователя в localStorage
  */
-function login() {
-    const code = document.getElementById('secret-code').value;
-    
-    if (ACCESS_CODES[code]) {
-        currentUser = ACCESS_CODES[code].role;
-        currentUserName = ACCESS_CODES[code].name;
-        localStorage.setItem('userRole', currentUser);
-        localStorage.setItem('userName', currentUserName);
-        checkAuth();
-    } else {
-        showToast("Неверный код доступа", "error");
+async function login() {
+    const code = document.getElementById('secret-code').value.trim();
+    if (!code) return;
+
+    try {
+        // Ищем пользователя с таким паролем в таблице users
+        const { data: user, error } = await supabaseClient.from('users')
+            .select('*')
+            .eq('password', code)
+            .single();
+
+        // Если пароль не найден или произошла ошибка
+        if (error || !user) {
+            showToast("НЕВЕРНЫЙ ПАРОЛЬ", "error");
+            return;
+        }
+
+        // Если пароль верный - сохраняем данные
+        currentRole = user.role;
+        currentUserData = user; // Записываем никнейм и аватарку
+
+        localStorage.setItem('movie_role', currentRole);
+        localStorage.setItem('movie_user_data', JSON.stringify(currentUserData));
+
+        document.getElementById('auth-screen').style.display = 'none';
+        
+        updateUserProfileUI(); // Рисуем аватарку и ник в шапке
+        showToast(`ДОБРО ПОЖАЛОВАТЬ, ${user.nickname.toUpperCase()}!`, "success");
+        
+        await fetchMovies(); // <--- Заменили на правильное название
+        
+    } catch (err) {
+        console.error("Ошибка входа:", err);
+        showToast("ОШИБКА СЕТИ", "error");
     }
 }
 
@@ -92,18 +118,39 @@ function logout() {
  * Обновляет фильтры и отображение после загрузки
  */
 async function fetchMovies() {
-    // Включаем скелеты до того, как данные загрузились
-    renderSkeletons();
+    renderSkeletons(); // Показываем скелеты на время загрузки
     
-    const { data, error } = await supabaseClient.from('movies').select('*');
-    
-    if (error) {
-        showToast("Ошибка подключения к базе", "error");
-        console.error(error);
-    } else {
-        allMovies = data;
+    try {
+        // 1. Сначала скачиваем ники обоих пользователей
+        const { data: users, error: userError } = await supabaseClient
+            .from('users')
+            .select('role, nickname');
+
+        if (!userError && users) {
+            users.forEach(u => {
+                userNicknames[u.role] = u.nickname;
+            });
+        }
+
+        // 2. Теперь скачиваем сами фильмы
+        const { data: movies, error: movieError } = await supabaseClient
+            .from('movies')
+            .select('*');
+
+        if (movieError) {
+            showToast("ОШИБКА ЗАГРУЗКИ ФИЛЬМОВ", "error");
+            console.error(movieError);
+            return;
+        }
+
+        // 3. Сохраняем и отображаем
+        allMovies = movies;
         updateFilterOptions();
-        applyFilters(); // Эта функция сама удалит скелеты и нарисует фильмы
+        applyFilters(); // Эта функция уберет скелеты и нарисует карточки
+
+    } catch (err) {
+        console.error("Критическая ошибка:", err);
+        showToast("СБОЙ ПРИ ЗАГРУЗКЕ", "error");
     }
 }
 
@@ -483,12 +530,12 @@ function renderMovies(movies) {
             
             <div class="card-overlay">
                 <div class="overlay-score-item">
-                    <div class="overlay-label">УМНЫЙ</div>
+                    <div class="overlay-label">${userNicknames.me.toUpperCase()}</div>
                     <div class="overlay-val">${r.me.toFixed(1)}</div>
                 </div>
                 <div style="width: 30px; height: 1px; background: rgba(255,255,255,0.1); margin: 5px 0;"></div>
                 <div class="overlay-score-item">
-                    <div class="overlay-label">НЕ УМНЫЙ</div>
+                    <div class="overlay-label">${userNicknames.any.toUpperCase()}</div>
                     <div class="overlay-val">${r.any.toFixed(1)}</div>
                 </div>
             </div>
@@ -613,11 +660,11 @@ function renderModalContent(m) {
 
         <div style="display: flex; flex-direction: column; gap: 20px;">
             <div class="${currentUser !== 'me' ? 'locked-group' : ''}">
-                <p style="text-align:center; font-size:0.7rem; color:#c0c0c0; text-transform:uppercase; margin-bottom:10px;">ОЦЕНКА УМНОГО: ${r.me.toFixed(1)}</p>
+                <p style="text-align:center; font-size:0.7rem; color:#c0c0c0; text-transform:uppercase; margin-bottom:10px;">ОЦЕНКА ${userNicknames.me.toUpperCase()}: ${r.me.toFixed(1)}</p>
                 ${renderSliders(m, 'me')}
             </div>
             <div style="border-top: 1px solid #222; padding-top: 20px;" class="${currentUser !== 'any' ? 'locked-group' : ''}">
-                <p style="text-align:center; font-size:0.7rem; color:#c0c0c0; text-transform:uppercase; margin-bottom:10px;">ОЦЕНКА НЕ УМНОГО: ${r.any.toFixed(1)}</p>
+                <p style="text-align:center; font-size:0.7rem; color:#c0c0c0; text-transform:uppercase; margin-bottom:10px;">ОЦЕНКА ${userNicknames.any.toUpperCase()}: ${r.any.toFixed(1)}</p>
                 ${renderSliders(m, 'any')}
             </div>
         </div>
@@ -946,8 +993,8 @@ function generateStatistics() {
 
         let verdict = "";
         const diffAvg = Math.abs(avgMe - avgAny).toFixed(2);
-        if (avgMe > avgAny) verdict = `«Не умный» судит фильмы строже в среднем на ${diffAvg} балла.`;
-        else if (avgAny > avgMe) verdict = `«Умный» судит фильмы строже в среднем на ${diffAvg} балла.`;
+        if (avgMe > avgAny) verdict = `«${userNicknames.any}» судит фильмы строже в среднем на ${diffAvg} балла.`;
+        else if (avgAny > avgMe) verdict = `«${userNicknames.me}» судит фильмы строже в среднем на ${diffAvg} балла.`;
         else verdict = "В среднем вы оцениваете фильмы абсолютно одинаково.";
 
         const mostAgreed = bothRated.reduce((p, c) => Math.abs(calculateRating(c).me - calculateRating(c).any) < Math.abs(calculateRating(p).me - calculateRating(p).any) ? c : p);
@@ -963,11 +1010,11 @@ function generateStatistics() {
 
             <div class="match-stats">
                 <div class="match-user">
-                    <h4>Умный</h4>
+                    <h4>${userNicknames.me}</h4>
                     <div class="match-score">${avgMe}</div>
                 </div>
                 <div class="match-user">
-                    <h4>Не умный</h4>
+                    <h4>${userNicknames.any}</h4>
                     <div class="match-score">${avgAny}</div>
                 </div>
             </div>
@@ -1011,10 +1058,15 @@ function generateStatistics() {
             <div style="position:relative; width:100%; max-width:350px; margin:0 auto; aspect-ratio:1/1;">
                 <canvas id="radarCanvas" style="width:100%; height:100%;"></canvas>
             </div>
-            <div style="display:flex; justify-content:center; gap:10px; margin-top:15px;">
-                <button onclick="setRadarView('me')" id="btn-radar-me" style="font-size:0.6rem; padding:5px 12px; border-radius:5px; border:1px solid #444; background:none; color:#888; cursor:pointer;">ТОЛЬКО Я</button>
-                <button onclick="setRadarView('both')" id="btn-radar-both" style="font-size:0.6rem; padding:5px 12px; border-radius:5px; border:1px solid #c0c0c0; background:#c0c0c0; color:#000; cursor:pointer; font-weight:bold;">ОБА</button>
-                <button onclick="setRadarView('any')" id="btn-radar-any" style="font-size:0.6rem; padding:5px 12px; border-radius:5px; border:1px solid #444; background:none; color:#888; cursor:pointer;">ТОЛЬКО ОН</button>
+            <div class="match-stats">
+                <div class="match-user">
+                    <h4>${userNicknames.me}</h4>
+                    <div class="match-score">${avgMe}</div>
+                </div>
+                <div class="match-user">
+                    <h4>${userNicknames.any}</h4>
+                    <div class="match-score">${avgAny}</div>
+                </div>
             </div>
         </div>`;
         
@@ -2012,4 +2064,103 @@ function setRadarView(mode) {
     if (window.radarData) {
         drawRadarChart(window.radarData.me, window.radarData.any);
     }
+}
+
+// ==========================================
+// ЛОГИКА ПРОФИЛЯ ПОЛЬЗОВАТЕЛЯ
+// ==========================================
+
+// 1. Обновляет кнопку в шапке сайта
+function updateUserProfileUI() {
+    if (!currentUserData) return;
+    
+    // Вставляем никнейм
+    document.getElementById('nav-nickname').innerText = currentUserData.nickname.toUpperCase();
+    
+    // Вставляем аватарку (если ссылки нет, генерируем заглушку с первой буквой имени)
+    const avatarImg = document.getElementById('nav-avatar');
+    if (currentUserData.avatar_url && currentUserData.avatar_url.trim() !== "") {
+        avatarImg.src = currentUserData.avatar_url;
+    } else {
+        avatarImg.src = `https://ui-avatars.com/api/?name=${currentUserData.nickname}&background=1a1a1a&color=c0c0c0`;
+    }
+}
+
+// 2. Открывает окно профиля и загружает туда статистику
+function openProfileModal() {
+    if (!currentUserData) return;
+    
+    // Заполняем поля ввода текущими данными
+    document.getElementById('profile-nickname-input').value = currentUserData.nickname;
+    document.getElementById('profile-avatar-input').value = currentUserData.avatar_url || "";
+    document.getElementById('profile-password-input').value = ""; // Пароль оставляем пустым
+    
+    // Считаем личную статистику
+    let ratedCount = 0;
+    let totalScore = 0;
+    
+    allMovies.forEach(m => {
+        const score = currentRole === 'me' ? m.score_me : m.score_any;
+        if (score) {
+            ratedCount++;
+            totalScore += Number(score);
+        }
+    });
+    
+    const avgScore = ratedCount > 0 ? (totalScore / ratedCount).toFixed(2) : "0.00";
+    
+    // Выводим статистику
+    document.getElementById('profile-stat-count').innerText = ratedCount;
+    document.getElementById('profile-stat-avg').innerText = avgScore;
+    
+    // Обновляем большое фото в профиле
+    const preview = document.getElementById('profile-avatar-preview');
+    if (currentUserData.avatar_url) preview.src = currentUserData.avatar_url;
+    else preview.src = `https://ui-avatars.com/api/?name=${currentUserData.nickname}&background=1a1a1a&color=c0c0c0`;
+
+    document.getElementById('profile-modal').style.display = 'flex';
+}
+
+// 3. Закрывает окно профиля
+function closeProfileModal() {
+    document.getElementById('profile-modal').style.display = 'none';
+}
+
+// 4. Сохраняет новые данные в базу (Supabase)
+async function saveProfile() {
+    const newNick = document.getElementById('profile-nickname-input').value.trim();
+    const newAvatar = document.getElementById('profile-avatar-input').value.trim();
+    const newPass = document.getElementById('profile-password-input').value.trim();
+    
+    if (!newNick) {
+        showToast("НИКНЕЙМ НЕ МОЖЕТ БЫТЬ ПУСТЫМ", "error");
+        return;
+    }
+
+    // Подготавливаем данные для отправки в базу
+    const updates = { nickname: newNick, avatar_url: newAvatar };
+    if (newPass) updates.password = newPass; // Если ввели новый пароль - меняем и его
+
+    // Обновляем строку в Supabase
+    const { error } = await supabaseClient.from('users').update(updates)
+        .eq('role', currentRole);
+
+    if (error) {
+        showToast("ОШИБКА СОХРАНЕНИЯ", "error");
+        console.error(error);
+        return;
+    }
+
+    // Обновляем данные на сайте без перезагрузки
+    currentUserData.nickname = newNick;
+    currentUserData.avatar_url = newAvatar;
+    
+    localStorage.setItem('movie_user_data', JSON.stringify(currentUserData));
+    updateUserProfileUI(); // Обновляем шапку
+    
+    closeProfileModal();
+    showToast("ПРОФИЛЬ УСПЕШНО ОБНОВЛЕН", "success");
+    
+    // Перерисовываем список фильмов, чтобы обновить ники на карточках
+    renderMovies(filteredMovies.length ? filteredMovies : allMovies); 
 }
