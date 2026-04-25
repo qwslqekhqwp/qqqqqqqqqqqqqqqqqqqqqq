@@ -33,6 +33,7 @@ let currentRouletteMovies = [];                               // Фильмы д
 let isSpinning = false;                                       // Флаг вращения
 let wheelAngle = 0;  
 let currentRadarView = 'both';                                // Вид графика
+let allUsersData = {};
 
 // ==========================================
 // 3. АУТЕНТИФИКАЦИЯ
@@ -140,17 +141,18 @@ async function fetchMovies() {
     renderSkeletons(); // Показываем скелеты на время загрузки
     
     try {
-        // 1. Сначала скачиваем ники обоих пользователей
+       // 1. Сначала скачиваем ники и аватарки обоих пользователей
         const { data: users, error: userError } = await supabaseClient
             .from('users')
-            .select('role, nickname');
+            .select('role, nickname, avatar_url'); // <--- ДОБАВИЛИ avatar_url
 
         if (!userError && users) {
             users.forEach(u => {
                 userNicknames[u.role] = u.nickname;
+                allUsersData[u.role] = u; // <--- СОХРАНЯЕМ ВСЕ ДАННЫЕ В ПАМЯТЬ
             });
             
-            // --- НОВОЕ: Динамически переименовываем фильтры ---
+            // --- Динамически переименовываем фильтры ---
             const optMe = document.querySelector('#filter-assessment option[value="only_me"]');
             const optAny = document.querySelector('#filter-assessment option[value="only_any"]');
             
@@ -738,13 +740,17 @@ function renderModalContent(m) {
         </div>
 
         <div style="display: flex; flex-direction: column; gap: 20px;">
-            <div class="${currentRole !== 'me' ? 'locked-group' : ''}">
-                <p style="text-align:center; font-size:0.7rem; color:#c0c0c0; text-transform:uppercase; margin-bottom:10px;">ОЦЕНКА ${userNicknames.me.toUpperCase()}: ${r.me.toFixed(1)}</p>
-                ${renderSliders(m, 'me')}
+            <div>
+                <p style="text-align:center; font-size:0.7rem; color:#c0c0c0; text-transform:uppercase; margin-bottom:10px;">ОЦЕНКА <span onclick="openProfileModal('me')" style="cursor:pointer; text-decoration:underline; text-underline-offset:3px; transition: color 0.2s;" onmouseover="this.style.color='#fff'" onmouseout="this.style.color='#c0c0c0'">${userNicknames.me.toUpperCase()}</span>: ${r.me.toFixed(1)}</p>
+                <div class="${currentRole !== 'me' ? 'locked-group' : ''}">
+                    ${renderSliders(m, 'me')}
+                </div>
             </div>
-            <div style="border-top: 1px solid #222; padding-top: 20px;" class="${currentRole !== 'any' ? 'locked-group' : ''}">
-                <p style="text-align:center; font-size:0.7rem; color:#c0c0c0; text-transform:uppercase; margin-bottom:10px;">ОЦЕНКА ${userNicknames.any.toUpperCase()}: ${r.any.toFixed(1)}</p>
-                ${renderSliders(m, 'any')}
+            <div style="border-top: 1px solid #222; padding-top: 20px;">
+                <p style="text-align:center; font-size:0.7rem; color:#c0c0c0; text-transform:uppercase; margin-bottom:10px;">ОЦЕНКА <span onclick="openProfileModal('any')" style="cursor:pointer; text-decoration:underline; text-underline-offset:3px; transition: color 0.2s;" onmouseover="this.style.color='#fff'" onmouseout="this.style.color='#c0c0c0'">${userNicknames.any.toUpperCase()}</span>: ${r.any.toFixed(1)}</p>
+                <div class="${currentRole !== 'any' ? 'locked-group' : ''}">
+                    ${renderSliders(m, 'any')}
+                </div>
             </div>
         </div>
 
@@ -1103,11 +1109,11 @@ function generateStatistics() {
 
             <div class="match-stats">
                 <div class="match-user">
-                    <h4>${userNicknames.me}</h4>
+                    <h4 onclick="openProfileModal('me')" style="cursor:pointer; text-decoration:underline; text-underline-offset:3px; transition:color 0.2s;" onmouseover="this.style.color='#fff'" onmouseout="this.style.color='#666'">${userNicknames.me}</h4>
                     <div class="match-score">${avgMe}</div>
                 </div>
                 <div class="match-user">
-                    <h4>${userNicknames.any}</h4>
+                    <h4 onclick="openProfileModal('any')" style="cursor:pointer; text-decoration:underline; text-underline-offset:3px; transition:color 0.2s;" onmouseover="this.style.color='#fff'" onmouseout="this.style.color='#666'">${userNicknames.any}</h4>
                     <div class="match-score">${avgAny}</div>
                 </div>
             </div>
@@ -2263,61 +2269,81 @@ function updateUserProfileUI() {
 
 
 
-// 2. Открывает окно профиля и загружает туда статистику
-function openProfileModal() {
-    if (!currentUserData) return;
-    if (currentRole === 'guest') {
-        showToast("ПРОФИЛЬ ГОСТЯ НЕЛЬЗЯ ИЗМЕНИТЬ", "warning");
+// Открывает окно профиля (своего или чужого)
+async function openProfileModal(targetRole = currentRole) {
+    if (targetRole === 'guest') {
+        showToast("У ГОСТЯ НЕТ ПРОФИЛЯ", "warning");
         return;
     }
     
-    // Заполняем поля ввода
-    document.getElementById('profile-nickname-input').value = currentUserData.nickname;
-    document.getElementById('profile-avatar-input').value = currentUserData.avatar_url || "";
-    document.getElementById('profile-password-input').value = ""; 
-    
-    const preview = document.getElementById('profile-avatar-preview');
-    if (currentUserData.avatar_url) preview.src = currentUserData.avatar_url;
-    else preview.src = `https://ui-avatars.com/api/?name=${currentUserData.nickname}&background=1a1a1a&color=c0c0c0`;
+    const isOwnProfile = (targetRole === currentRole);
 
-    // === ВЫЧИСЛЯЕМ ЛИЧНУЮ СТАТИСТИКУ ===
+    // 1. АВТО-ЗАГРУЗКА ДАННЫХ ДРУГА (если их нет в памяти)
+    if (typeof allUsersData === 'undefined') window.allUsersData = {}; 
+    if (!allUsersData[targetRole]) {
+        const { data } = await supabaseClient.from('users').select('*').eq('role', targetRole).single();
+        if (data) allUsersData[targetRole] = data;
+    }
+    const userData = allUsersData[targetRole] || currentUserData;
+
+    // 2. АВТО-СОЗДАНИЕ HTML БЛОКА (если он случайно потерялся в index.html)
+    let editSection = document.getElementById('profile-edit-section');
+    let readonlySection = document.getElementById('profile-readonly-section');
     
-    // 1. Фильмы для счетчиков (Оценено/Часы): Общие + Твои Соло
+    if (!readonlySection && editSection) {
+        readonlySection = document.createElement('div');
+        readonlySection.id = 'profile-readonly-section';
+        readonlySection.style.textAlign = 'center';
+        readonlySection.style.marginBottom = '25px';
+        readonlySection.innerHTML = `
+            <img id="profile-readonly-avatar" src="" style="width: 100px; height: 100px; border-radius: 15px; object-fit: cover; border: 2px solid #c0c0c0; margin-bottom: 15px; box-shadow: 0 5px 15px rgba(0,0,0,0.5);">
+            <h3 id="profile-readonly-nickname" style="font-size: 1.8rem; color: #fff; margin: 0; text-transform: uppercase; letter-spacing: 2px;">ИМЯ</h3>
+        `;
+        editSection.parentNode.insertBefore(readonlySection, editSection.nextSibling);
+    }
+
+    // Переключаем интерфейс: настройки для себя или визитка для друга
+    if (editSection) editSection.style.display = isOwnProfile ? 'block' : 'none';
+    if (readonlySection) readonlySection.style.display = isOwnProfile ? 'none' : 'block';
+    
+    const mainTitle = document.getElementById('profile-main-title');
+    if (mainTitle) mainTitle.innerText = isOwnProfile ? 'ЛИЧНЫЙ ПРОФИЛЬ' : 'ПРОФИЛЬ ПОЛЬЗОВАТЕЛЯ';
+
+    if (isOwnProfile) {
+        document.getElementById('profile-nickname-input').value = userData.nickname || "Без имени";
+        document.getElementById('profile-avatar-input').value = userData.avatar_url || "";
+        document.getElementById('profile-avatar-preview').src = userData.avatar_url || `https://ui-avatars.com/api/?name=${userData.nickname}&background=1a1a1a&color=c0c0c0`;
+    } else {
+        document.getElementById('profile-readonly-nickname').innerText = userData.nickname || "Без имени";
+        document.getElementById('profile-readonly-avatar').src = userData.avatar_url || `https://ui-avatars.com/api/?name=${userData.nickname}&background=1a1a1a&color=c0c0c0`;
+    }
+
+    // === УМНЫЕ РАСЧЕТЫ (с учетом соло-фильмов) ===
     const myWatchedMovies = allMovies.filter(m => 
-        m.status === 'Просмотрено' && (m.view_type === 'both' || m.view_type === currentRole)
+        m.status === 'Просмотрено' && (m.view_type === 'both' || m.view_type === targetRole)
     );
 
-    // 2. Фильмы для рейтингов (Радар/Жанры): Только те, где ты уже выставил оценки
     const myRatedMovies = myWatchedMovies.filter(m => {
-        const myScore = (Number(m['plot_' + currentRole] || 0) + Number(m['ending_' + currentRole] || 0) + 
-                         Number(m['reviewability_' + currentRole] || 0) + Number(m['actors_' + currentRole] || 0) + 
-                         Number(m['atmosphere_' + currentRole] || 0) + Number(m['music_' + currentRole] || 0));
-        return myScore > 0;
+        const scoreSum = (Number(m['plot_' + targetRole] || 0) + Number(m['ending_' + targetRole] || 0) + 
+                          Number(m['reviewability_' + targetRole] || 0) + Number(m['actors_' + targetRole] || 0) + 
+                          Number(m['atmosphere_' + targetRole] || 0) + Number(m['music_' + targetRole] || 0));
+        return scoreSum > 0;
     });
 
-    // --- Базовые метрики ---
-    let totalScore = 0;
-    let totalMinutes = 0;
-    let myScoresData = []; 
+    let totalScore = 0; let totalMinutes = 0; let myScoresData = []; 
     let radarScores = { plot: 0, ending: 0, reviewability: 0, actors: 0, atmosphere: 0, music: 0 };
 
-    // Считаем часы по ВСЕМ твоим фильмам
-    myWatchedMovies.forEach(m => {
-        totalMinutes += (parseInt(m.duration) || 0);
-    });
+    myWatchedMovies.forEach(m => totalMinutes += (parseInt(m.duration) || 0));
 
-    // Считаем баллы и радар ТОЛЬКО по оцененным
     myRatedMovies.forEach(m => {
-        const score = calculateRating(m)[currentRole]; 
+        const weights = { plot: 0.40, end: 0.25, rev: 0.15, act: 0.10, atm: 0.05, mus: 0.05 };
+        const score = (Number(m['plot_'+targetRole]||0)*weights.plot + Number(m['ending_'+targetRole]||0)*weights.end + 
+                       Number(m['reviewability_'+targetRole]||0)*weights.rev + Number(m['actors_'+targetRole]||0)*weights.act + 
+                       Number(m['atmosphere_'+targetRole]||0)*weights.atm + Number(m['music_'+targetRole]||0)*weights.mus);
+        
         totalScore += score;
         myScoresData.push({ movie: m, score: score });
-
-        radarScores.plot += Number(m['plot_' + currentRole] || 0);
-        radarScores.ending += Number(m['ending_' + currentRole] || 0);
-        radarScores.reviewability += Number(m['reviewability_' + currentRole] || 0);
-        radarScores.actors += Number(m['actors_' + currentRole] || 0);
-        radarScores.atmosphere += Number(m['atmosphere_' + currentRole] || 0);
-        radarScores.music += Number(m['music_' + currentRole] || 0);
+        for (let k in radarScores) radarScores[k] += Number(m[k + '_' + targetRole] || 0);
     });
     
     const countWatched = myWatchedMovies.length;
@@ -2328,30 +2354,20 @@ function openProfileModal() {
     document.getElementById('profile-stat-avg').innerText = avgScore;
     document.getElementById('profile-stat-time').innerHTML = `${Math.floor(totalMinutes/60)}<span style="font-size:0.8rem">ч</span> ${totalMinutes%60}<span style="font-size:0.8rem">м</span>`;
 
-    // --- Любимые фильмы (Топ-3) ---
+    // --- Любимые фильмы ---
     const favMoviesContainer = document.getElementById('profile-fav-movies');
     favMoviesContainer.innerHTML = '';
-    
     if (countRated > 0) {
-        myScoresData.sort((a, b) => {
-            if (b.score !== a.score) return b.score - a.score;
-            return new Date(b.movie.updated_at || 0) - new Date(a.movie.updated_at || 0);
-        });
-
-        const top3 = myScoresData.slice(0, 3);
-        top3.forEach(item => {
-            const m = item.movie;
+        myScoresData.sort((a, b) => b.score - a.score || new Date(b.movie.updated_at) - new Date(a.movie.updated_at));
+        myScoresData.slice(0, 3).forEach(item => {
             favMoviesContainer.innerHTML += `
                 <div style="flex: 0 0 100px; text-align: center;">
-                    <img src="${m.poster || 'https://via.placeholder.com/100x150?text=Нет+постера'}" style="width: 100px; height: 150px; object-fit: cover; border-radius: 8px; border: 1px solid #333; margin-bottom: 5px; box-shadow: 0 4px 10px rgba(0,0,0,0.5);">
-                    <div style="font-size: 0.65rem; color: #ccc; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: bold;" title="${m.title}">${m.title}</div>
+                    <img src="${item.movie.poster || ''}" style="width: 100px; height: 150px; object-fit: cover; border-radius: 8px; border: 1px solid #333; margin-bottom: 5px;">
+                    <div style="font-size: 0.65rem; color: #ccc; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: bold;">${item.movie.title}</div>
                     <div style="font-size: 0.8rem; color: #c0c0c0; font-weight: 900;">${item.score.toFixed(1)}</div>
-                </div>
-            `;
+                </div>`;
         });
-    } else {
-        favMoviesContainer.innerHTML = '<div style="color: #555; font-size: 0.8rem;">Нет оцененных фильмов</div>';
-    }
+    } else { favMoviesContainer.innerHTML = '<div style="color: #555; font-size: 0.8rem;">Нет фильмов</div>'; }
 
     // --- Топ-10 Жанров ---
     const genreData = {};
@@ -2361,15 +2377,17 @@ function openProfileModal() {
                 const name = g.trim().toUpperCase();
                 if (!genreData[name]) genreData[name] = { count: 0, totalScore: 0 };
                 genreData[name].count++;
-                genreData[name].totalScore += calculateRating(m)[currentRole];
+                const weights = { plot: 0.40, end: 0.25, rev: 0.15, act: 0.10, atm: 0.05, mus: 0.05 };
+                genreData[name].totalScore += (Number(m['plot_'+targetRole]||0)*weights.plot + Number(m['ending_'+targetRole]||0)*weights.end + 
+                       Number(m['reviewability_'+targetRole]||0)*weights.rev + Number(m['actors_'+targetRole]||0)*weights.act + 
+                       Number(m['atmosphere_'+targetRole]||0)*weights.atm + Number(m['music_'+targetRole]||0)*weights.mus);
             });
         }
     });
 
     const sortedGenres = Object.entries(genreData)
         .map(([name, data]) => ({ name, count: data.count, avg: data.totalScore / data.count, score: (data.totalScore / data.count) * (1 + Math.log10(data.count)) }))
-        .sort((a, b) => b.score - a.score)
-        .slice(0, 10);
+        .sort((a, b) => b.score - a.score).slice(0, 10);
 
     const genresContainer = document.getElementById('profile-genres');
     if (sortedGenres.length > 0) {
@@ -2377,32 +2395,18 @@ function openProfileModal() {
         genresContainer.innerHTML = sortedGenres.map((g, index) => {
             const relativeWidth = (g.score / maxScore) * 100;
             let medalClass = "genre-fill"; 
-            if (index === 0) medalClass += " bar-gold";
-            else if (index === 1) medalClass += " bar-silver";
-            else if (index === 2) medalClass += " bar-bronze";
-
+            if (index === 0) medalClass += " bar-gold"; else if (index === 1) medalClass += " bar-silver"; else if (index === 2) medalClass += " bar-bronze";
             return `
                 <div class="genre-item" style="margin-bottom: 8px;">
-                    <div class="genre-name" style="${index < 3 ? 'color: #fff; font-weight: bold;' : 'font-size: 0.65rem;'} width: 90px;">
-                        ${g.name}
-                    </div>
-                    <div class="genre-track" style="height: 6px;">
-                        <div class="${medalClass}" style="width: ${relativeWidth}%; height: 100%;"></div>
-                    </div>
-                    <div class="genre-info" style="min-width: 50px; font-size: 0.6rem;">
-                        <span style="color: #eee;">${g.avg.toFixed(1)}</span> <span style="color: #444;">(${g.count})</span>
-                    </div>
-                </div>
-            `;
+                    <div class="genre-name" style="${index < 3 ? 'color: #fff; font-weight: bold;' : 'font-size: 0.65rem;'} width: 90px;">${g.name}</div>
+                    <div class="genre-track" style="height: 6px;"><div class="${medalClass}" style="width: ${relativeWidth}%; height: 100%;"></div></div>
+                    <div class="genre-info" style="min-width: 50px; font-size: 0.6rem;"><span style="color: #eee;">${g.avg.toFixed(1)}</span> <span style="color: #444;">(${g.count})</span></div>
+                </div>`;
         }).join('');
-    } else {
-        genresContainer.innerHTML = '<div style="color: #555; font-size: 0.8rem;">Нет данных по жанрам</div>';
-    }
+    } else { genresContainer.innerHTML = '<div style="color: #555; font-size: 0.8rem;">Нет данных</div>'; }
 
-    // Открываем окно
     document.getElementById('profile-modal').style.display = 'block';
 
-    // --- Отрисовка радара ---
     if (countRated > 0) {
         for (let k in radarScores) radarScores[k] /= countRated; 
         setTimeout(() => drawProfileRadar(radarScores), 50);

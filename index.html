@@ -235,7 +235,7 @@
 
     <div id="movie-modal" class="modal">
         <div class="modal-content">
-            <span style="position:absolute; right:20px; top:10px; cursor:pointer; font-size:1.5rem; color:#888;" onclick="closeModal()">&times;</span>
+            <span class="close-modal" onclick="closeModal()">&times;</span>
             <div id="modal-body"></div>
         </div>
     </div>
@@ -243,28 +243,36 @@
 
     <div id="profile-modal" class="modal" style="display: none;">
         <div class="modal-content" style="max-width: 600px; text-align: center; position: relative;"> 
-        <span class="close-modal" onclick="closeProfileModal()" style="position: absolute; top: 15px; right: 20px; font-size: 1.8rem; line-height: 1; z-index: 10;">&times;</span>
-            <h2 style="font-size: 1.2rem; margin-bottom: 20px; color: #c0c0c0; text-transform: uppercase; letter-spacing: 2px;">Личный профиль</h2>
+        <span class="close-modal" onclick="closeProfileModal()">&times;</span>
+        <div id="profile-edit-section">
+            <h2 id="profile-main-title" style="font-size: 1.2rem; margin-bottom: 20px; color: #c0c0c0; text-transform: uppercase; letter-spacing: 2px;">Личный профиль</h2>
 
-            <div style="display: flex; gap: 20px; text-align: left; margin-bottom: 25px; flex-wrap: wrap;">
-                <div class="profile-avatar-container" style="margin-bottom: 0;">
-                    <img id="profile-avatar-preview" src="https://ui-avatars.com/api/?name=?&background=1a1a1a&color=c0c0c0" alt="Аватар">
+            <div id="profile-edit-section">
+                <div style="display: flex; gap: 20px; text-align: left; margin-bottom: 25px; flex-wrap: wrap;">
+                    <div class="profile-avatar-container" style="margin-bottom: 0;">
+                        <img id="profile-avatar-preview" src="https://ui-avatars.com/api/?name=?&background=1a1a1a&color=c0c0c0" alt="Аватар">
+                    </div>
+                    <div style="flex: 1; min-width: 200px;">
+                        <label style="font-size: 0.6rem; color: #888; text-transform: uppercase; margin-bottom: 5px; display: block;">Никнейм</label>
+                        <input type="text" id="profile-nickname-input" style="width: 100%; background: #161616; border: 1px solid #333; color: #fff; padding: 10px; border-radius: 12px; font-weight: bold; outline: none; margin-bottom: 10px;">
+
+                        <label style="font-size: 0.6rem; color: #888; text-transform: uppercase; margin-bottom: 5px; display: block;">URL Аватарки</label>
+                        <input type="text" id="profile-avatar-input" style="width: 100%; background: #161616; border: 1px solid #333; color: #fff; padding: 10px; border-radius: 12px; outline: none; margin-bottom: 10px;" placeholder="https://...">
+
+                        <label style="font-size: 0.6rem; color: #888; text-transform: uppercase; margin-bottom: 5px; display: block;">Новый пароль</label>
+                        <input type="password" id="profile-password-input" style="width: 100%; background: #161616; border: 1px solid #333; color: #fff; padding: 10px; border-radius: 12px; outline: none;" placeholder="Оставьте пустым, если не меняете">
+                    </div>
                 </div>
-                <div style="flex: 1; min-width: 200px;">
-                    <label style="font-size: 0.6rem; color: #888; text-transform: uppercase; margin-bottom: 5px; display: block;">Никнейм</label>
-                    <input type="text" id="profile-nickname-input" style="width: 100%; background: #161616; border: 1px solid #333; color: #fff; padding: 10px; border-radius: 12px; font-weight: bold; outline: none; margin-bottom: 10px;">
 
-                    <label style="font-size: 0.6rem; color: #888; text-transform: uppercase; margin-bottom: 5px; display: block;">URL Аватарки</label>
-                    <input type="text" id="profile-avatar-input" style="width: 100%; background: #161616; border: 1px solid #333; color: #fff; padding: 10px; border-radius: 12px; outline: none; margin-bottom: 10px;" placeholder="https://...">
-
-                    <label style="font-size: 0.6rem; color: #888; text-transform: uppercase; margin-bottom: 5px; display: block;">Новый пароль</label>
-                    <input type="text" id="profile-password-input" style="width: 100%; background: #161616; border: 1px solid #333; color: #fff; padding: 10px; border-radius: 12px; outline: none;" placeholder="Оставьте пустым, если не меняете">
-                </div>
+                <button onclick="saveProfile()" style="width: 100%; background: #c0c0c0; color: #000; border: none; padding: 12px; border-radius: 12px; font-weight: 900; cursor: pointer; text-transform: uppercase; font-size: 0.9rem; margin-bottom: 25px;">
+                    Сохранить настройки
+                </button>
             </div>
 
-            <button onclick="saveProfile()" style="width: 100%; background: #c0c0c0; color: #000; border: none; padding: 12px; border-radius: 12px; font-weight: 900; cursor: pointer; text-transform: uppercase; font-size: 0.9rem; margin-bottom: 25px;">
-                Сохранить настройки
-            </button>
+            <div id="profile-readonly-section" style="display: none; text-align: center; margin-bottom: 25px;">
+                <img id="profile-readonly-avatar" src="" style="width: 100px; height: 100px; border-radius: 15px; object-fit: cover; border: 2px solid #c0c0c0; margin-bottom: 15px; box-shadow: 0 5px 15px rgba(0,0,0,0.5);">
+                <h3 id="profile-readonly-nickname" style="font-size: 1.8rem; color: #fff; margin: 0; text-transform: uppercase; letter-spacing: 2px;">ИМЯ</h3>
+            </div>
 
             <div class="stats-grid-main" style="margin-bottom: 25px;">
                 <div style="background:#111; padding:15px; border-radius:12px; text-align:center; border:1px solid #222;">

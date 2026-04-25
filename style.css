@@ -6,6 +6,16 @@
    1. БАЗОВЫЕ СТИЛИ
    ========================================== */
 
+/* 1. Заставляем браузер считать отступы ВНУТРИ ширины блоков */
+*, *::before, *::after {
+    box-sizing: border-box;
+}
+
+/* 2. Жестко блокируем горизонтальную прокрутку для всего экрана */
+html, body {
+    overflow-x: hidden;
+    width: 100%;
+}
 body {
     background: #0a0a0a;
     color: #e0e0e0;
@@ -394,6 +404,23 @@ button {
 .modal.fade-out {
     opacity: 0;
     transition: opacity 0.3s ease;
+}
+
+/* --- УНИВЕРСАЛЬНЫЙ КРЕСТИК ЗАКРЫТИЯ --- */
+.close-modal {
+    position: absolute;
+    top: 15px;
+    right: 20px;
+    font-size: 1.8rem;
+    color: #888;
+    cursor: pointer;
+    line-height: 1;
+    z-index: 9999; /* Жестко выносим поверх абсолютно всех слоев */
+    transition: color 0.3s ease;
+}
+
+.close-modal:hover {
+    color: #fff;
 }
 
 /* ==========================================
@@ -842,6 +869,24 @@ input[type="range"]::-webkit-slider-thumb {
    ========================================== */
 
 @media (max-width: 600px) {
+    /* Уменьшаем пустые поля по краям экрана на телефоне */
+    body {
+        padding: 10px;
+    }
+
+    /* Расширяем модальное окно и уменьшаем его внутренние отступы (чтобы текст не зажимало) */
+    .modal-content {
+        width: 95%;
+        padding: 18px 15px; 
+        margin: 5% auto;
+    }
+
+    /* Чуть сдвигаем крестик закрытия, чтобы он аккуратно смотрелся с новыми отступами */
+    .close-modal {
+        top: 10px !important;
+        right: 15px !important;
+    }
+
     #spin-mode {
         display: none !important;
     }
