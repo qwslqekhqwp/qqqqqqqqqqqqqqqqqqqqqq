@@ -215,6 +215,7 @@ async function saveRatings() {
         updateData.actors = document.getElementById('edit-actors').value;
         updateData.external_rating = document.getElementById('edit-external-rating').value;
         updateData.kp_rating = document.getElementById('edit-kp-rating').value;
+        updateData.collection = document.getElementById('edit-collection') ? document.getElementById('edit-collection').value.trim() : null;
     }
     
     // Сохраняем оценки текущего пользователя
@@ -353,6 +354,30 @@ function renderSkeletons() {
 // 6. ФИЛЬТРАЦИЯ, СОРТИРОВКА И РАСЧЕТЫ
 // ==========================================
 
+
+
+let currentStatusFilter = 'all';
+
+function setStatusFilter(status) {
+    currentStatusFilter = status;
+    
+    // Меняем активную таблетку
+    document.querySelectorAll('.status-pill').forEach(btn => btn.classList.remove('active'));
+    event.target.classList.add('active');
+    
+    // Блокируем фильтр оценок, если выбраны несмотренные фильмы
+    const assessSelect = document.getElementById('filter-assessment');
+    if (status === 'roulette' || status === 'unwatched') {
+        assessSelect.value = 'all';
+        assessSelect.disabled = true;
+        assessSelect.style.opacity = '0.4';
+    } else {
+        assessSelect.disabled = false;
+        assessSelect.style.opacity = '1';
+    }
+    
+    applyFilters();
+}
 /**
  * Обновляет список опций в фильтрах (жанры и режиссеры)
  * Парсит данные из всех фильмов
@@ -424,31 +449,25 @@ function applyFilters() {
     const sort = document.getElementById('sort-select').value;
 
     let filtered = allMovies.filter(m => {
-        // Проверка поиска, жанра и режиссера
         const matchesSearch = m.title.toLowerCase().includes(search);
         const matchesGenre = !genre || (m.genre && m.genre.toLowerCase().includes(genre.toLowerCase()));
         const matchesProd = !prod || m.producer === prod;
 
-        // ЛОГИКА ФИЛЬТРАЦИИ ПО СТАТУСУ И ОЦЕНКАМ
-        // Считаем, были ли оценки от каждого пользователя
-        const hasMe = (Number(m.plot_me || 0) + Number(m.ending_me || 0) + Number(m.actors_me || 0) + Number(m.reviewability_me || 0) + Number(m.atmosphere_me || 0) + Number(m.music_me || 0)) > 0;
-        const hasAny = (Number(m.plot_any || 0) + Number(m.ending_any || 0) + Number(m.actors_any || 0) + Number(m.reviewability_any || 0) + Number(m.atmosphere_any || 0) + Number(m.music_any || 0)) > 0;
-        const isWatched = m.status === 'Просмотрено';
+        // 1. ФИЛЬТРАЦИЯ ПО ТАБЛЕТКАМ СТАТУСОВ
+        let matchesStatus = true;
+        if (currentStatusFilter === 'watched') matchesStatus = (m.status === 'Просмотрено');
+        else if (currentStatusFilter === 'roulette') matchesStatus = (m.status === 'В колесе');
+        else if (currentStatusFilter === 'unwatched') matchesStatus = (m.status === 'Не просмотрено');
+        else if (currentStatusFilter === 'review') matchesStatus = (m.status === 'На пересмотр');
 
+        // 2. ФИЛЬТРАЦИЯ ПО ОЦЕНКАМ (Только если таблетка позволяет)
         let matchesAssessment = true;
+        const hasMe = (Number(m.plot_me||0) + Number(m.ending_me||0) + Number(m.actors_me||0) + Number(m.reviewability_me||0) + Number(m.atmosphere_me||0) + Number(m.music_me||0)) > 0;
+        const hasAny = (Number(m.plot_any||0) + Number(m.ending_any||0) + Number(m.actors_any||0) + Number(m.reviewability_any||0) + Number(m.atmosphere_any||0) + Number(m.music_any||0)) > 0;
 
-        // Фильтрация по оценкам
-        if (assessment === 'not_watched') {
-            matchesAssessment = (m.status === 'Не просмотрено');
-        } else {
-            // Если фильм не просмотрен — убираем его из списков кроме "not_watched"
-            if (!isWatched) return false;
-
+        if (m.status === 'Просмотрено' || m.status === 'На пересмотр') {
             if (assessment === 'all') {
-                // Скрываем чужие соло-фильмы из вкладки "Все оценки"
-                if (m.view_type !== 'both' && m.view_type !== currentRole && currentRole !== 'guest') {
-                    matchesAssessment = false;
-                }
+                if (m.view_type !== 'both' && m.view_type !== currentRole && currentRole !== 'guest') matchesAssessment = false;
             }
             else if (assessment === 'both') matchesAssessment = hasMe && hasAny;
             else if (assessment === 'only_me') matchesAssessment = hasMe && !hasAny;
@@ -456,7 +475,7 @@ function applyFilters() {
             else if (assessment === 'none') matchesAssessment = !hasMe && !hasAny;
         }
 
-        return matchesSearch && matchesGenre && matchesProd && matchesAssessment;
+        return matchesSearch && matchesGenre && matchesProd && matchesStatus && matchesAssessment;
     });
 
     // Сортировка результатов
@@ -568,17 +587,27 @@ function renderMovies(movies) {
         const dateToShow = m.updated_at || m.created_at;
         // Плашка "Просмотрено" показывается только для общих фильмов или ВАШИХ соло-фильмов
        // --- ЛОГИКА ЕДИНОЙ СТЕКЛЯННОЙ ПЛАШКИ ---
+
         let movieBadgeHTML = '';
 
-        // 1. Случай: Общий просмотр (показываем "ПРОСМОТРЕНО")
         if (m.status === 'Просмотрено' && (m.view_type === 'both' || m.view_type === currentRole)) {
             movieBadgeHTML = `<div class="glass-badge"><span>✓</span> ПРОСМОТРЕНО</div>`;
-        } 
-        
-        // 2. Случай: Соло просмотр друга (показываем "ПРОСМОТРЕЛ ИМЯ")
-        else if (m.view_type !== 'both' && m.view_type !== currentRole && m.view_type !== 'guest') {
+        } else if (m.status === 'Просмотрено' && m.view_type !== 'both' && m.view_type !== currentRole && m.view_type !== 'guest') {
             const ownerName = userNicknames[m.view_type] ? userNicknames[m.view_type].toUpperCase() : 'ДРУГ';
             movieBadgeHTML = `<div class="glass-badge"><span>🛈</span> ОЦЕНИЛ ${ownerName}</div>`;
+        } else if (m.status === 'В колесе') {
+            movieBadgeHTML = `<div class="glass-badge"><span>♤</span> В КОЛЕСЕ</div>`;
+        } else if (m.status === 'На пересмотр') {
+            movieBadgeHTML = `<div class="glass-badge"><span>⟲</span> ПЕРЕСМОТР</div>`;
+        } else if (m.status === 'Не просмотрено') {
+            movieBadgeHTML = `<div class="glass-badge"><span>✕</span> НЕ ПРОСМОТРЕНО</div>`;
+        }
+        
+        // Кнопка быстрого добавления в рулетку (Только для ПК)
+        let quickRouletteBtn = '';
+        if (m.status !== 'Просмотрено') {
+            const isRoulette = m.status === 'В колесе';
+            quickRouletteBtn = `<div class="quick-roulette-btn desktop-only" onclick="event.stopPropagation(); toggleRouletteDirectly(${m.id})" title="${isRoulette ? 'Убрать из рулетки' : 'В рулетку'}">${isRoulette ? '✕' : '♤'}</div>`;
         }
 
         const card = document.createElement('div');
@@ -588,6 +617,7 @@ function renderMovies(movies) {
         
         card.innerHTML = `
             ${movieBadgeHTML}
+            ${quickRouletteBtn}
             
             <div class="card-overlay">
                 <div class="overlay-score-item">
@@ -634,6 +664,13 @@ function openModalById(id) {
     isEditMode = false;
     renderModalContent(movie);
     document.getElementById('movie-modal').style.display = 'block';
+
+    // --- АМБИЛАЙТ: Включаем свечение ---
+    const ambilight = document.getElementById('modal-ambilight');
+    if (ambilight) {
+        ambilight.style.backgroundImage = `url('${movie.poster || ''}')`;
+        setTimeout(() => ambilight.style.opacity = '1', 50); // Небольшая задержка для плавности
+    }
 }
 
 /**
@@ -642,6 +679,10 @@ function openModalById(id) {
 function closeModal() {
     const modal = document.getElementById('movie-modal');
     const modalContent = modal.querySelector('.modal-content');
+    
+    // --- АМБИЛАЙТ: Выключаем свечение ---
+    const ambilight = document.getElementById('modal-ambilight');
+    if (ambilight) ambilight.style.opacity = '0';
     
     modalContent.classList.add('closing');
     modal.classList.add('fade-out');
@@ -678,6 +719,7 @@ function renderModalContent(m) {
                     <input type="text" id="edit-producer" value="${m.producer || ''}" placeholder="Режиссер">
                     <input type="text" id="edit-actors" value="${m.actors || ''}" placeholder="Актеры">
                     <input type="text" id="edit-external-rating" value="${m.external_rating || ''}" placeholder="Рейтинг TMDB">
+                    <input type="text" id="edit-collection" value="${m.collection || ''}" placeholder="Название коллекции (франшизы)">
                     <div class="score-group">
                         <label style="font-size: 0.7rem; color: #666; display: block; margin-bottom: 5px;">РЕЙТИНГ КИНОПОИСКА</label>
                         <input type="number" id="edit-kp-rating" value="${m.kp_rating || ''}" step="0.1" style="margin-bottom: 0;">
@@ -695,20 +737,30 @@ function renderModalContent(m) {
                     <p style="color:#666; font-size:0.7rem; margin:2px 0;">В ролях: ${m.actors || '—'}</p>
                 `}
 
-                <div id="status-toggle" 
-                     onclick="toggleMovieStatus()" 
-                     style="display: inline-flex; align-items: center; gap: 8px; cursor: pointer; padding: 6px 12px; border-radius: 20px; 
-                            border: 1px solid ${isViewed ? '#ccc' : '#444'}; 
-                            background: ${isViewed ? 'rgba(255, 255, 255, 0.08)' : 'transparent'}; 
-                            box-shadow: ${isViewed ? '0 0 15px rgba(255, 255, 255, 0.05)' : 'none'};
-                            margin-top: 10px; transition: all 0.3s ease;">
-                    <span id="status-icon" style="color: ${isViewed ? '#ccc' : '#666'}; font-size: 1.1rem;">
-                        ${isViewed ? '✓' : '○'}
-                    </span>
-                    <span id="status-text" style="font-size: 0.75rem; color: ${isViewed ? '#fff' : '#888'}; 
-                            font-weight: ${isViewed ? 'bold' : 'normal'}; text-transform: uppercase; letter-spacing: 1px;">
-                        ${isViewed ? 'Просмотрено' : 'Не просмотрено'}
-                    </span>
+                <div style="display: flex; gap: 10px; margin-top: 15px;">
+                    <div onclick="toggleMovieStatus()" 
+                         style="display: inline-flex; align-items: center; gap: 8px; cursor: pointer; padding: 8px 15px; border-radius: 12px; 
+                                border: 1px solid ${isViewed ? '#ccc' : '#444'}; 
+                                background: ${isViewed ? 'rgba(255, 255, 255, 0.08)' : 'transparent'}; 
+                                transition: all 0.3s ease;">
+                        <span id="status-icon" style="color: ${isViewed ? '#ccc' : '#666'}; font-size: 1.1rem;">${isViewed ? '✓' : '○'}</span>
+                        <span id="status-text" style="font-size: 0.75rem; color: ${isViewed ? '#fff' : '#888'}; font-weight: ${isViewed ? 'bold' : 'normal'}; text-transform: uppercase;">
+                            ${isViewed ? 'Просмотрено' : 'Не просмотрено'}
+                        </span>
+                    </div>
+
+                    ${!isViewed ? `
+                    <div onclick="toggleRouletteDirectly(${m.id}, true)" 
+                         style="display: inline-flex; align-items: center; gap: 8px; cursor: pointer; padding: 8px 15px; border-radius: 12px; 
+                                border: 1px solid ${m.status === 'В колесе' ? '#c0c0c0' : '#444'}; 
+                                background: ${m.status === 'В колесе' ? '#c0c0c0' : 'transparent'}; 
+                                transition: all 0.3s ease;">
+                        <span style="font-size: 1.1rem;">♤</span>
+                        <span style="font-size: 0.75rem; color: ${m.status === 'В колесе' ? '#000' : '#888'}; font-weight: bold; text-transform: uppercase;">
+                            ${m.status === 'В колесе' ? 'В колесе' : 'В рулетку'}
+                        </span>
+                    </div>
+                    ` : ''}
                     <input type="hidden" id="edit-status" value="${m.status}">
                 </div>
 
@@ -808,6 +860,27 @@ function toggleMovieStatus() {
     }
 }
 
+async function toggleRouletteDirectly(id, isModalOpen = false) {
+    if (currentRole === 'guest') { showToast("Гостям нельзя менять статусы", "warning"); return; }
+    
+    const m = allMovies.find(x => x.id === id);
+    // Если он в колесе - возвращаем в бэклог. Если нет - отправляем в колесо.
+    const newStatus = (m.status === 'В колесе') ? 'Не просмотрено' : 'В колесе';
+    
+    // Мгновенно меняем локально для скорости интерфейса
+    m.status = newStatus;
+    
+    // Обновляем базу асинхронно
+    await supabaseClient.from('movies').update({ status: newStatus, updated_at: new Date().toISOString() }).eq('id', id);
+    
+    if (newStatus === 'В колесе') showToast("Отправлено в рулетку ♤", "success");
+    else showToast("Убрано из рулетки ✕", "info");
+    
+    // Перерисовываем интерфейс
+    if (isModalOpen) renderModalContent(m);
+    applyFilters();
+}
+
 /**
  * Рендерит ползунки оценок для определенного пользователя
  * @param {object} m - Объект фильма
@@ -878,6 +951,45 @@ function toggleForm() {
     f.style.display = f.style.display === 'none' ? 'block' : 'none';
 }
 
+function toggleNewViewed() {
+    const input = document.getElementById('new-is-viewed');
+    const box = document.getElementById('new-viewed-checkbox');
+    const select = document.getElementById('new-status');
+    
+    if (input.value === 'false') {
+        input.value = 'true';
+        box.style.color = '#000';
+        box.style.background = '#c0c0c0';
+        box.style.borderColor = '#c0c0c0';
+        select.disabled = true; // Блокируем выпадающий список
+        select.style.opacity = '0.3';
+    } else {
+        input.value = 'false';
+        box.style.color = 'transparent';
+        box.style.background = 'transparent';
+        box.style.borderColor = '#555';
+        select.disabled = false; // Разблокируем
+        select.style.opacity = '1';
+    }
+}
+
+function toggleNewSoloView() {
+    const input = document.getElementById('new-solo-view');
+    const box = document.getElementById('new-solo-checkbox');
+    
+    if (input.value === 'false') {
+        input.value = 'true';
+        box.style.color = '#000';
+        box.style.background = '#c0c0c0';
+        box.style.borderColor = '#c0c0c0';
+    } else {
+        input.value = 'false';
+        box.style.color = 'transparent';
+        box.style.background = 'transparent';
+        box.style.borderColor = '#555';
+    }
+}
+
 /**
  * Ищет информацию о фильме в TMDB API и автоматически заполняет форму
  * Требует введения названия фильма
@@ -894,10 +1006,13 @@ async function searchMovieData() {
     searchBtn.disabled = true;
     
     try {
+        // Читаем год (если он введен)
+        const yearInput = document.getElementById('new-year').value.trim();
+        let searchUrl = `https://api.themoviedb.org/3/search/movie?api_key=${TMDB_API_KEY}&query=${encodeURIComponent(title)}&language=ru-RU`;
+        if (yearInput) searchUrl += `&primary_release_year=${yearInput}`; // <-- Добавили фильтр по году!
+
         // Ищем фильм в TMDB
-        const searchRes = await fetch(
-            `https://api.themoviedb.org/3/search/movie?api_key=${TMDB_API_KEY}&query=${encodeURIComponent(title)}&language=ru-RU`
-        );
+        const searchRes = await fetch(searchUrl);
         const searchData = await searchRes.json();
         
         if (searchData.results.length === 0) {
@@ -914,6 +1029,7 @@ async function searchMovieData() {
         // Заполняем форму полученными данными
         document.getElementById('new-title').value = details.title;
         document.getElementById('new-poster').value = details.poster_path ? TMDB_IMAGE_BASE + details.poster_path : '';
+        document.getElementById('new-collection').value = details.belongs_to_collection ? details.belongs_to_collection.name.replace(" - коллекция", "").replace(" (коллекция)", "") : '';
         document.getElementById('new-year').value = details.release_date ? details.release_date.split('-')[0] : '';
         document.getElementById('new-duration').value = details.runtime || '';
         document.getElementById('new-genre').value = details.genres.map(g => g.name).join(', ');
@@ -954,11 +1070,12 @@ document.getElementById('add-movie-form').addEventListener('submit', async (e) =
     // ==========================================
     
     // Проверяем, нажата ли галочка "Соло"
-    const isSolo = document.getElementById('new-solo-view').checked;
+    const isSolo = document.getElementById('new-solo-view').value === 'true';
     // Если нажата - записываем роль того, кто добавляет. Если нет - записываем 'both'
     const viewType = isSolo ? currentRole : 'both';
 
-    const newMovie = { 
+    const newMovie = {
+        collection: document.getElementById('new-collection').value.trim(), 
         title: newTitle, 
         poster: document.getElementById('new-poster').value,
         year: document.getElementById('new-year').value, 
@@ -968,9 +1085,10 @@ document.getElementById('add-movie-form').addEventListener('submit', async (e) =
         actors: document.getElementById('new-actors').value, 
         external_rating: tempExternalRating,
         kp_rating: document.getElementById('new-kp-rating') ? document.getElementById('new-kp-rating').value : null,
-        status: document.getElementById('new-status').value, 
+        status: document.getElementById('new-is-viewed').value === 'true' ? 'Просмотрено' : document.getElementById('new-status').value, 
         view_type: viewType, // <--- ОТПРАВЛЯЕМ ТИП ПРОСМОТРА В БАЗУ
-        updated_at: new Date().toISOString() 
+        updated_at: new Date().toISOString()
+         
     };
     
     await supabaseClient.from('movies').insert([newMovie]);
@@ -1494,12 +1612,12 @@ function initRoulette() {
     const maxTime = parseInt(document.getElementById('time-filter').value) || 999;
     
     currentRouletteMovies = allMovies.filter(m => 
-        m.status === 'Не просмотрено' && 
+        m.status === 'В колесе' && 
         (parseInt(m.duration) || 0) <= maxTime
     );
 
     if (currentRouletteMovies.length < 2) {
-        showToast("Добавьте минимум 2 фильма в 'Не просмотрено'!", "warning");
+        showToast("Добавьте минимум 2 фильма в 'В колесе'!", "warning");
         return;
     }
 
@@ -1855,7 +1973,7 @@ function prepareDrum() {
     if (!drumList) return;
 
     const maxTime = parseInt(document.getElementById('time-filter').value) || 999;
-    currentRouletteMovies = allMovies.filter(m => m.status === 'Не просмотрено' && (parseInt(m.duration) || 0) <= maxTime);
+    currentRouletteMovies = allMovies.filter(m => m.status === 'В колесе' && (parseInt(m.duration) || 0) <= maxTime);
 
     drumList.innerHTML = '';
     currentTranslateY = 0;
@@ -2571,4 +2689,177 @@ async function joinMovie() {
     } catch (err) {
         showToast("СБОЙ СЕТИ", "error");
     }
+}
+
+// ==========================================
+// 15. КОЛЛЕКЦИИ (ФРАНШИЗЫ)
+// ==========================================
+
+let currentMainView = 'movies'; // 'movies' или 'collections'
+
+function switchMainView(view) {
+    currentMainView = view;
+    const btnMovies = document.getElementById('btn-view-movies');
+    const btnCollections = document.getElementById('btn-view-collections');
+    const gridMovies = document.getElementById('movie-grid');
+    const gridCollections = document.getElementById('collections-grid');
+
+    if (view === 'movies') {
+        btnMovies.style.background = '#c0c0c0'; btnMovies.style.color = '#000'; btnMovies.style.borderColor = '#c0c0c0';
+        btnCollections.style.background = '#161616'; btnCollections.style.color = '#c0c0c0'; btnCollections.style.borderColor = '#333';
+        gridMovies.style.display = 'grid';
+        gridCollections.style.display = 'none';
+        applyFilters(); // Обновляем сетку фильмов
+    } else {
+        btnCollections.style.background = '#c0c0c0'; btnCollections.style.color = '#000'; btnCollections.style.borderColor = '#c0c0c0';
+        btnMovies.style.background = '#161616'; btnMovies.style.color = '#c0c0c0'; btnMovies.style.borderColor = '#333';
+        gridMovies.style.display = 'none';
+        gridCollections.style.display = 'grid';
+        renderCollections(); // Строим папки
+    }
+}
+
+function renderCollections() {
+    const grid = document.getElementById('collections-grid');
+    grid.innerHTML = '';
+    const collectionsMap = {};
+
+    // Группируем фильмы по полю collection
+    allMovies.forEach(m => {
+        if (m.collection && m.collection.trim() !== '') {
+            const cName = m.collection.trim().toUpperCase();
+            if (!collectionsMap[cName]) collectionsMap[cName] = [];
+            collectionsMap[cName].push(m);
+        }
+    });
+
+    const fragment = document.createDocumentFragment();
+
+    Object.keys(collectionsMap).sort().forEach(cName => {
+        const cMovies = collectionsMap[cName];
+        // Сортируем фильмы внутри папки по году
+        cMovies.sort((a, b) => parseInt(a.year || 3000) - parseInt(b.year || 3000));
+        
+        let totalScore = 0; let countRated = 0; let countWatched = 0;
+        cMovies.forEach(m => {
+            if (m.status === 'Просмотрено') countWatched++;
+            const r = calculateRating(m).total;
+            if (r > 0) { totalScore += r; countRated++; }
+        });
+
+        const avg = countRated > 0 ? (totalScore / countRated).toFixed(2) : "0.00";
+        
+        // Достаем постеры (до 3 штук для красивой стопки)
+        let postersHTML = '';
+        const posters = cMovies.map(m => m.poster).filter(p => p).slice(0, 3);
+        if (posters.length === 1) postersHTML = `<img src="${posters[0]}" style="z-index: 2; width: 110px; height: 165px; transform: none;">`;
+        else if (posters.length === 2) postersHTML = `<img src="${posters[0]}"><img src="${posters[1]}">`;
+        else if (posters.length >= 3) postersHTML = `<img src="${posters[0]}"><img src="${posters[1]}"><img src="${posters[2]}">`;
+
+        const card = document.createElement('div');
+        card.className = 'collection-card';
+        card.onclick = () => openCollectionModal(cName, cMovies);
+        card.innerHTML = `
+            <div class="collection-posters">${postersHTML}</div>
+            <h3 style="margin: 0 0 10px 0; font-size: 0.95rem; color: #fff; text-transform: uppercase; letter-spacing: 1px;">${cName}</h3>
+            <div style="background: #1a1a1a; padding: 10px; border-radius: 8px; font-size: 0.75rem; color: #888; text-align: left; border: 1px solid #333;">
+                <div style="display: flex; justify-content: space-between; margin-bottom: 5px;"><span>Фильмов:</span> <span style="color:#fff; font-weight:bold;">${cMovies.length}</span></div>
+                <div style="display: flex; justify-content: space-between; margin-bottom: 5px;"><span>Просмотрено:</span> <span style="color:#fff; font-weight:bold;">${countWatched}</span></div>
+                <div style="display: flex; justify-content: space-between;"><span>Ср. балл:</span> <span style="color:#c0c0c0; font-weight:900; font-size:0.85rem;">${avg}</span></div>
+            </div>
+        `;
+        fragment.appendChild(card);
+    });
+
+    if (Object.keys(collectionsMap).length === 0) {
+        grid.innerHTML = '<div style="grid-column: 1/-1; text-align: center; color: #666; padding: 40px; text-transform: uppercase;">Нет коллекций. Добавьте название коллекции при редактировании фильма.</div>';
+    } else {
+        grid.appendChild(fragment);
+    }
+}
+
+function openCollectionModal(cName, cMovies) {
+    document.getElementById('collection-modal-title').innerText = cName;
+    
+    // Статистика коллекции
+    let totalScore = 0; let countRated = 0; let countWatched = 0; let totalMinutes = 0;
+    cMovies.forEach(m => {
+        if (m.status === 'Просмотрено') countWatched++;
+        totalMinutes += parseInt(m.duration) || 0;
+        const r = calculateRating(m).total;
+        if (r > 0) { totalScore += r; countRated++; }
+    });
+
+    document.getElementById('collection-modal-stats').innerHTML = `
+        <div style="background:#111; padding:15px; border-radius:12px; text-align:center; border:1px solid #222;">
+            <p style="color:#555; font-size:0.55rem; margin:0; letter-spacing: 1px;">ФИЛЬМОВ</p>
+            <h2 style="font-size:1.5rem; margin:5px 0 0 0; color: #fff;">${countWatched} <span style="font-size:0.8rem; color:#666;">/ ${cMovies.length}</span></h2>
+        </div>
+        <div style="background:#111; padding:15px; border-radius:12px; text-align:center; border:1px solid #222;">
+            <p style="color:#555; font-size:0.55rem; margin:0; letter-spacing: 1px;">СР. БАЛЛ</p>
+            <h2 style="font-size:1.5rem; margin:5px 0 0 0; color: #fff;">${countRated > 0 ? (totalScore/countRated).toFixed(2) : "0.00"}</h2>
+        </div>
+        <div style="background:#111; padding:15px; border-radius:12px; text-align:center; border:1px solid #222;">
+            <p style="color:#555; font-size:0.55rem; margin:0; letter-spacing: 1px;">ВРЕМЯ</p>
+            <h2 style="font-size:1.5rem; margin:5px 0 0 0; color: #fff;">${Math.floor(totalMinutes/60)}<span style="font-size:0.8rem">ч</span> ${totalMinutes%60}<span style="font-size:0.8rem">м</span></h2>
+        </div>
+    `;
+
+    // Отрисовываем сетку внутри модалки
+    const grid = document.getElementById('collection-modal-grid');
+    grid.innerHTML = '';
+    const fragment = document.createDocumentFragment();
+    
+    // Переиспользуем логику создания карточек (немного адаптированную)
+    cMovies.forEach(m => {
+        const r = calculateRating(m);
+        let badgeStyle = (r.total > 0) ? "background: linear-gradient(90deg, #c0c0c0 50%, rgba(40, 40, 40, 0.9) 50%); color: #fff; border: none;" : "background-color: #1a1a1a; color: #555;";
+        let movieBadgeHTML = '';
+        if (m.status === 'Просмотрено' && (m.view_type === 'both' || m.view_type === currentRole)) movieBadgeHTML = `<div class="glass-badge"><span>✓</span> ПРОСМОТРЕНО</div>`;
+        else if (m.view_type !== 'both' && m.view_type !== currentRole && m.view_type !== 'guest') {
+            const ownerName = userNicknames[m.view_type] ? userNicknames[m.view_type].toUpperCase() : 'ДРУГ';
+            movieBadgeHTML = `<div class="glass-badge"><span>🛈</span> ОЦЕНИЛ ${ownerName}</div>`;
+        }
+
+        const card = document.createElement('div');
+        card.className = 'card';
+        card.style.opacity = '1'; card.style.animation = 'none'; // Убираем задержку анимации для модалки
+        card.onclick = () => { closeCollectionModal(); setTimeout(() => openModalById(m.id), 300); };
+        
+        card.innerHTML = `
+            ${movieBadgeHTML}
+            <img src="${m.poster || 'https://via.placeholder.com/180x260?text=No+Poster'}">
+            <div class="card-info" style="height: 125px;">
+                <div class="card-top-content">
+                    <h3 style="margin: 0 0 8px 0; font-size: 0.8rem; line-height: 1.2; min-height: 2.4em; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; text-overflow: ellipsis;">${m.title}</h3>
+                    <span class="rating-badge" style="${badgeStyle}">${r.total.toFixed(1)}</span>
+                </div>
+                <div class="card-date" style="padding-top: 10px;">${m.year || '—'} год</div>
+            </div>`;
+        fragment.appendChild(card);
+    });
+    grid.appendChild(fragment);
+
+    // Амбилайт для коллекции
+    const ambilight = document.getElementById('collection-ambilight');
+    if (ambilight && cMovies.length > 0) {
+        ambilight.style.backgroundImage = `url('${cMovies[0].poster}')`;
+        setTimeout(() => ambilight.style.opacity = '1', 50);
+    }
+
+    document.getElementById('collection-modal').style.display = 'block';
+}
+
+function closeCollectionModal() {
+    const modal = document.getElementById('collection-modal');
+    const ambilight = document.getElementById('collection-ambilight');
+    if (ambilight) ambilight.style.opacity = '0';
+    
+    modal.querySelector('.modal-content').classList.add('closing');
+    modal.classList.add('fade-out');
+    setTimeout(() => {
+        modal.style.display = 'none';
+        modal.querySelector('.modal-content').classList.remove('closing');
+        modal.classList.remove('fade-out');
+    }, 300);
 }

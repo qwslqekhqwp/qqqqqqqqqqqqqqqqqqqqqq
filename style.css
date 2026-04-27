@@ -303,16 +303,17 @@ button {
     display: flex;
     flex-direction: column;
     justify-content: space-between;
-    height: 110px;
+    height: 125px; /* Дали блоку больше высоты, чтобы элементам не было тесно */
     box-sizing: border-box;
 }
 
 .card-date {
     font-size: 0.55rem;
-    color: #333;
+    color: #444; /* Сделал цвет капельку светлее, чтобы дата лучше читалась на темном фоне */
     text-transform: uppercase;
     letter-spacing: 0.5px;
     margin-top: auto;
+    padding-top: 10px; /* Гарантированный отступ от оценки сверху */
 }
 
 .rating-badge {
@@ -363,16 +364,37 @@ button {
 }
 
 .modal-content {
-    background: #161616;
+    /* Превращаем карточку в темное матовое стекло */
+    background: rgba(22, 22, 22, 0.75); 
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    z-index: 1; /* Чтобы карточка была всегда поверх свечения */
+    
     margin: 2% auto;
     padding: 30px;
     width: 90%;
     max-width: 650px;
     border-radius: 20px;
-    border: 1px solid #333;
+    border: 1px solid rgba(255, 255, 255, 0.1); /* Сделали рамку чуть прозрачнее для эффекта стекла */
     position: relative;
-    box-shadow: 0 20px 40px rgba(0,0,0,0.5);
+    box-shadow: 0 20px 50px rgba(0,0,0,0.8);
     animation: modalScaleUp 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+/* --- АМБИЛАЙТ ЭФФЕКТ ДЛЯ ОКНА ФИЛЬМА И КОЛЛЕКЦИИ --- */
+#modal-ambilight, #collection-ambilight {
+    position: fixed;
+    top: -10%;
+    left: -10%;
+    width: 120%;
+    height: 120%;
+    background-size: cover;
+    background-position: center;
+    filter: blur(60px) brightness(0.35);
+    z-index: 0;
+    opacity: 0;
+    transition: opacity 0.6s ease;
+    pointer-events: none;
 }
 
 @keyframes modalScaleUp {
@@ -864,6 +886,50 @@ input[type="range"]::-webkit-slider-thumb {
     text-align: right;
 }
 
+/* --- СТИЛИ КАРТОЧКИ КОЛЛЕКЦИИ --- */
+.collection-card {
+    background: #111;
+    border-radius: 15px;
+    padding: 20px 10px;
+    text-align: center;
+    cursor: pointer;
+    border: 1px solid #2a2a2a;
+    transition: all 0.3s ease;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    min-height: 320px;
+}
+.collection-card:hover {
+    transform: translateY(-5px);
+    border-color: #c0c0c0;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+}
+.collection-posters {
+    position: relative;
+    height: 180px;
+    width: 100%;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    margin-bottom: 20px;
+}
+.collection-posters img {
+    position: absolute;
+    width: 100px;
+    height: 150px;
+    object-fit: cover;
+    border-radius: 8px;
+    border: 1px solid #444;
+    box-shadow: 0 5px 15px rgba(0,0,0,0.6);
+    transition: all 0.3s ease;
+}
+.collection-card:hover .collection-posters img:nth-child(1) { transform: translateX(-30px) rotate(-10deg); }
+.collection-card:hover .collection-posters img:nth-child(3) { transform: translateX(30px) rotate(10deg); }
+.collection-posters img:nth-child(1) { transform: translateX(-15px) rotate(-5deg); z-index: 1; }
+.collection-posters img:nth-child(2) { z-index: 3; width: 110px; height: 165px; border-color: #888; }
+.collection-posters img:nth-child(3) { transform: translateX(15px) rotate(5deg); z-index: 2; }
+
 /* ==========================================
    13. АДАПТИВНЫЕ СТИЛИ
    ========================================== */
@@ -1027,7 +1093,99 @@ input[type="range"]::-webkit-slider-thumb {
     margin-top: 5px; 
 }
 
+/* --- СТАТУСНЫЕ ТАБЛЕТКИ (APPLE STYLE) --- */
+.status-pills-container {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 15px;
+    overflow-x: auto; /* Можете оставить скролл, если Desired, но убедитесь в padding */
+    -ms-overflow-style: none; /* Скрываем скроллбар (опционально) */
+    scrollbar-width: none; /* Скрываем скроллбар (опционально) */
+    
+    /* КРИТИЧЕСКИ ВАЖНО: Достаточные отступы сверху и снизу (например, 15-20px) */
+    padding-top: 20px; 
+    padding-bottom: 20px; 
+    padding-left: 5px; /* Немного padding по бокам, чтобы не вплотную */
+    padding-right: 5px;
+}
+
+.status-pills-container::-webkit-scrollbar {
+    display: none;
+}
+
+/* Базовое состояние (без свечения) */
+.status-pill {
+    background: rgba(255, 255, 255, 0.05);
+    color: #888;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    padding: 8px 16px;
+    border-radius: 20px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    white-space: nowrap;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    
+    /* Убираем свечение в спокойном состоянии */
+    box-shadow: none; 
+}
+
+.status-pill:hover {
+    background: rgba(255, 255, 255, 0.1);
+    color: #ccc;
+    box-shadow: 0 0 15px 2px rgba(255, 255, 255, 0.25); /* Чуть ярче при наведении */
+}
+
+/* Активный статус (выделенная таблетка) */
+.status-pill.active {
+    background: #c0c0c0;
+    color: #000;
+    border-color: #c0c0c0;
+    
+    /* Для активной кнопки сделаем свечение поярче и немного сгладим spread */
+    box-shadow: 0 0 18px 3px rgba(192, 192, 192, 0.4); 
+}
+
+/* --- КНОПКА БЫСТРОГО ДОБАВЛЕНИЯ В РУЛЕТКУ (НА КАРТОЧКЕ) --- */
+.quick-roulette-btn {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    width: 35px;
+    height: 35px;
+    background: rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(5px);
+    -webkit-backdrop-filter: blur(5px);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.1rem;
+    color: #fff;
+    cursor: pointer;
+    z-index: 20;
+    opacity: 0;
+    transform: scale(0.8);
+    transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.card:hover .quick-roulette-btn {
+    opacity: 1;
+    transform: scale(1);
+}
+.quick-roulette-btn:hover {
+    background: #c0c0c0;
+    color: #000;
+    transform: scale(1.1) !important;
+}
+
 @media (max-width: 600px) { 
+    /* Прячем кнопку быстрого добавления на телефонах, как ты и просил */
+    .desktop-only {
+        display: none !important;
+    }
     .match-extremes { flex-direction: column; } 
 }
 
@@ -1154,18 +1312,18 @@ input[type="range"]::-webkit-slider-thumb {
     top: 0;
     left: 0;
     width: 100%;
-    height: 75%; /* Закрывает только область постера, не трогая название внизу */
-    background: rgba(255, 255, 255, 0.03); /* Почти прозрачный белый фон */
-    backdrop-filter: blur(8px); /* То самое размытие "матовое стекло" */
-    -webkit-backdrop-filter: blur(8px); /* Поддержка для Safari */
+    height: calc(100% - 130px); /* Идеально ровно: отнимаем фиксированную высоту текстового блока */
+    background: rgba(255, 255, 255, 0.03); 
+    backdrop-filter: blur(8px); 
+    -webkit-backdrop-filter: blur(8px); 
     display: flex;
     flex-direction: column;
     justify-content: center;
     align-items: center;
-    opacity: 0; /* Изначально панель не видна */
-    transition: opacity 0.4s ease; /* Плавное появление */
+    opacity: 0; 
+    transition: opacity 0.4s ease; 
     z-index: 5;
-    pointer-events: none; /* Пропускает клики сквозь себя на основную карточку */
+    pointer-events: none; 
 }
 
 /* При наведении на всю карточку (.card), показываем нашу панель (.card-overlay) */

@@ -56,13 +56,25 @@
                     <input type="text" id="new-genre" placeholder="Жанр">
                     <input type="text" id="new-producer" placeholder="Режиссер">
                     <input type="text" id="new-actors" placeholder="Актеры" style="grid-column: span 2;">
+                    <input type="text" id="new-collection" placeholder="Название коллекции (если есть)" style="grid-column: span 2;">
                     <input type="number" id="new-kp-rating" placeholder="Рейтинг КП " step="0.1" min="0" max="10" style="grid-column: span 2;">
                     
-                    <select id="new-status" style="grid-column: span 2;"><option value="Не просмотрено">Не просмотрено</option><option value="Просмотрено" selected>Просмотрено</option></select>
+                    <select id="new-status" style="grid-column: span 2;">
+                        <option value="Не просмотрено" selected>Не просмотрено ✕</option>
+                        <option value="В колесе">В колесе ♤</option>
+                        <option value="На пересмотр">На пересмотр ⟲</option>
+                    </select>
                     
-                    <div style="grid-column: span 2; display: flex; align-items: center; gap: 10px; background: #1a1a1a; padding: 12px 15px; border-radius: 10px; border: 1px solid #333; margin-bottom: 10px;">
-                        <input type="checkbox" id="new-solo-view" style="width: 18px; height: 18px; margin: 0; cursor: pointer;">
-                        <label for="new-solo-view" style="font-size: 0.75rem; color: #aaa; cursor: pointer; text-transform: uppercase; letter-spacing: 1px;">Я смотрел этот фильм один (Соло)</label>
+                    <div style="grid-column: span 2; display: flex; align-items: center; gap: 10px; background: #1a1a1a; padding: 12px 15px; border-radius: 10px; border: 1px solid #333; margin-bottom: 10px; cursor: pointer; transition: 0.3s;" onclick="toggleNewViewed()">
+                        <div id="new-viewed-checkbox" style="width: 18px; height: 18px; border-radius: 4px; border: 1px solid #555; display: flex; align-items: center; justify-content: center; font-size: 0.7rem; color: transparent; transition: 0.2s;">✓</div>
+                        <span style="font-size: 0.75rem; color: #aaa; text-transform: uppercase; letter-spacing: 1px;">Фильм уже просмотрен</span>
+                        <input type="hidden" id="new-is-viewed" value="false">
+                    </div>
+                    
+                    <div style="grid-column: span 2; display: flex; align-items: center; gap: 10px; background: #1a1a1a; padding: 12px 15px; border-radius: 10px; border: 1px solid #333; margin-bottom: 10px; cursor: pointer; transition: 0.3s;" onclick="toggleNewSoloView()">
+                        <div id="new-solo-checkbox" style="width: 18px; height: 18px; border-radius: 4px; border: 1px solid #555; display: flex; align-items: center; justify-content: center; font-size: 0.7rem; color: transparent; transition: 0.2s;">✓</div>
+                        <span style="font-size: 0.75rem; color: #aaa; text-transform: uppercase; letter-spacing: 1px;">Я смотрел этот фильм один (Соло)</span>
+                        <input type="hidden" id="new-solo-view" value="false">
                     </div>
 
                     <button type="submit" class="save-btn" style="grid-column: span 2;">Добавить фильм</button>
@@ -71,7 +83,20 @@
         </div>
 
         <div style="max-width: 800px; margin: 0 auto 25px;">
+            <div style="display: flex; gap: 10px; margin-bottom: 20px;">
+                <button id="btn-view-movies" class="save-btn" style="background: #c0c0c0; color: #000;" onclick="switchMainView('movies')">ФИЛЬМЫ</button>
+                <button id="btn-view-collections" class="save-btn" style="background: #161616; color: #c0c0c0; border: 1px solid #333;" onclick="switchMainView('collections')">КОЛЛЕКЦИИ</button>
+            </div>
             <input type="text" id="search-input" placeholder="Поиск фильма..." oninput="debouncedSearch()">
+            
+            <div class="status-pills-container">
+                <button class="status-pill active" onclick="setStatusFilter('all')">Все фильмы</button>
+                <button class="status-pill" onclick="setStatusFilter('watched')">Просмотрено ✓</button>
+                <button class="status-pill" onclick="setStatusFilter('roulette')">В колесе ♤</button>
+                <button class="status-pill" onclick="setStatusFilter('review')">На пересмотр ⟲</button>
+                <button class="status-pill" onclick="setStatusFilter('unwatched')">Не просмотрено ✕</button>
+            </div>
+
             <div class="filters-container">
                 <select id="filter-genre" onchange="applyFilters()"></select>
                 <select id="filter-producer" onchange="applyFilters()"></select>
@@ -81,7 +106,6 @@
                     <option value="only_me">Оценил умный</option>
                     <option value="only_any">Оценил не умный</option>
                     <option value="none">Никто не оценил</option>
-                    <option value="not_watched">Не просмотрено</option>
                 </select>
                 <select id="sort-select" onchange="applyFilters()">
                     <option value="newest">Сначала новые</option>
@@ -93,8 +117,9 @@
             </div>
         </div>
 
-        
         <div id="movie-grid" class="grid"></div>
+        <div id="collections-grid" class="grid" style="display: none;"></div>
+
     </div>
 
     <div id="roulette-screen" style="display: none; max-width: 900px; margin: 0 auto; text-align: center; padding: 20px;">
@@ -234,6 +259,8 @@
     <div id="stats-container" style="display: none; max-width: 900px; margin: 0 auto;"></div>
 
     <div id="movie-modal" class="modal">
+        <div id="modal-ambilight"></div>
+        
         <div class="modal-content">
             <span class="close-modal" onclick="closeModal()">&times;</span>
             <div id="modal-body"></div>
@@ -241,10 +268,10 @@
     </div>
 
 
-    <div id="profile-modal" class="modal" style="display: none;">
+   <div id="profile-modal" class="modal" style="display: none;">
         <div class="modal-content" style="max-width: 600px; text-align: center; position: relative;"> 
-        <span class="close-modal" onclick="closeProfileModal()">&times;</span>
-        <div id="profile-edit-section">
+            <span class="close-modal" onclick="closeProfileModal()">&times;</span>
+            
             <h2 id="profile-main-title" style="font-size: 1.2rem; margin-bottom: 20px; color: #c0c0c0; text-transform: uppercase; letter-spacing: 2px;">Личный профиль</h2>
 
             <div id="profile-edit-section">
@@ -307,6 +334,20 @@
                         </div>
                 </div>
             </div>
+        </div>
+    </div>
+
+    <div id="collection-modal" class="modal" style="display: none;">
+        <div id="collection-ambilight"></div>
+        <div class="modal-content" style="max-width: 850px; text-align: center;">
+            <span class="close-modal" onclick="closeCollectionModal()">&times;</span>
+            <h2 id="collection-modal-title" style="font-size: 1.8rem; margin-bottom: 20px; color: #fff; text-transform: uppercase; letter-spacing: 3px; text-shadow: 0 0 15px rgba(192,192,192,0.5);">НАЗВАНИЕ ФРАНШИЗЫ</h2>
+            
+            <div class="stats-grid-main" id="collection-modal-stats" style="margin-bottom: 30px;">
+                </div>
+
+            <div id="collection-modal-grid" class="grid">
+                </div>
         </div>
     </div>
 
